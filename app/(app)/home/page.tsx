@@ -1,29 +1,106 @@
-﻿import HomeActions from "./HomeActions";
-import AppNav from "../AppNav"; // if you add it
+﻿"use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { supabase } from "../../lib/supabaseClient";
 
-export default async function HomePage() {
-  // TODO: replace with your real role fetch
-  const role = "student";
+type Role = "student" | "company";
+
+export default function HomePage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<Role | null>(null);
+  const [name, setName] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      setMsg(null);
+
+      const { data: sess } = await supabase.auth.getSession();
+      const user = sess.session?.user;
+
+      if (!user) {
+        router.push("/");
+        return;
+      }
+
+      const { data: prof, error: profErr } = await supabase
+        .from("profiles")
+        .select("role, display_name")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (profErr) {
+        setMsg(`Profile read failed: ${profErr.message}`);
+      }
+
+      if (prof?.role) {
+        setRole(prof.role as Role);
+        setName(prof.display_name ?? null);
+        setLoading(false);
+        return;
+      }
+
+      const meta = (user.user_metadata || {}) as any;
+      const metaRole = (meta.role as Role) || "student";
+      const metaName = (meta.display_name as string | null) ?? null;
+
+      const { error: insErr } = await supabase.from("profiles").insert({
+        user_id: user.id,
+        role: metaRole,
+        display_name: metaName,
+      });
+
+      if (insErr) {
+        setMsg(`Profile could not be created: ${insErr.message}`);
+        setRole(null);
+        setName(null);
+        setLoading(false);
+        return;
+      }
+
+      const { data: prof2, error: prof2Err } = await supabase
+        .from("profiles")
+        .select("role, display_name")
+        .eq("user_id", user.id)
+        .single();
+
+      if (prof2Err) {
+        setMsg(`Profile created but could not be read: ${prof2Err.message}`);
+        setRole(null);
+        setName(null);
+        setLoading(false);
+        return;
+      }
+
+      setRole(prof2.role as Role);
+      setName(prof2.display_name ?? null);
+      setLoading(false);
+    })();
+  }, [router]);
+
+  if (loading) return <main><p className="p">Loading…</p></main>;
 
   return (
-    <div className="container" style={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
-      <div className="shell" style={{ width: "min(900px, 100%)" }}>
-        <div className="main">
-          <div className="kicker">HOME</div>
-          <h1 className="h1">Welcome</h1>
-          <p className="p">
-            Role: <span style={{ color: "var(--text)", fontWeight: 800 }}>{role}</span>. This is your post-login hub.
-          </p>
+    <main>
+      <div className="kicker">Home</div>
+      <h1 className="h1" style={{ fontSize: 34 }}>
+        Welcome{ name ? `, ${name}` : "" }
+      </h1>
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <HomeActions />
-            <p className="p" style={{ marginTop: 12 }}>
-              Tip: Your dashboard will adapt based on role (student vs company).
-            </p>
-          </div>
-        </div>
+      <p className="p" style={{ maxWidth: 720 }}>
+        Role: <b>{role ?? "unknown"}</b>. This is your post-login hub.
+      </p>
+
+      {msg && <p className="p" style={{ fontSize: 13 }}>{msg}</p>}
+
+      <div className="btnRow" style={{ marginTop: 14 }}>
+        <Link className="btn btnPrimary" href="/schedule">
+          Go to Schedule →
+        </Link>
       </div>
-    </div>
+    </main>
   );
 }
