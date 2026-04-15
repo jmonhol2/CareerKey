@@ -5,7 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-type Company = { id: string; company_name: string };
+type Company = {
+  id: string;
+  company_name: string;
+};
+
 type Slot = {
   id: string;
   company_id: string;
@@ -13,6 +17,24 @@ type Slot = {
   end_time: string;
   capacity: number;
   booked: number;
+};
+
+type CompanyProfile = {
+  company_id: string;
+  short_description: string | null;
+  long_description: string | null;
+  industry: string | null;
+  location: string | null;
+  website: string | null;
+  logo_url: string | null;
+  rating: number | null;
+  review_count: number | null;
+  headquarters: string | null;
+  company_size: string | null;
+  hiring_types: string[] | null;
+  majors: string[] | null;
+  skills: string[] | null;
+  last_refreshed_at: string | null;
 };
 
 function getOrCreateStudentId(): string {
@@ -43,6 +65,8 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true);
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [showMore, setShowMore] = useState(false);
 
   // Timezone selector (defaults to user's timezone, persisted in localStorage)
   const [timeZone, setTimeZone] = useState<string>(getOrInitTimeZone());
@@ -108,6 +132,36 @@ export default function SchedulePage() {
     setSlots(merged);
   }
 
+  async function loadCompanyProfile(companyId: string) {
+    const { data, error } = await supabase
+      .from("company_profiles")
+      .select("*")
+      .eq("company_id", companyId)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    setCompanyProfile(data ?? null);
+    setShowMore(false);
+  }
+  async function refreshCompanyProfile(companyId: string) {
+  const res = await fetch("/api/company-insights", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ companyId }),
+  });
+
+  const json = await res.json();
+
+  if (!res.ok) {
+    throw new Error(json.error || "Failed to refresh company profile");
+  }
+
+  setCompanyProfile(json.profile ?? null);
+}
+
   useEffect(() => {
     (async () => {
       try {
@@ -123,17 +177,25 @@ export default function SchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!selectedCompanyId) return;
-    (async () => {
-      try {
-        setError(null);
-        await loadSlots(selectedCompanyId);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load slots");
-      }
-    })();
-  }, [selectedCompanyId]);
+useEffect(() => {
+  if (!selectedCompanyId) return;
+
+  (async () => {
+    try {
+      setError(null);
+      setShowMore(false);
+
+      await Promise.all([
+        loadSlots(selectedCompanyId),
+        loadCompanyProfile(selectedCompanyId),
+      ]);
+
+      await refreshCompanyProfile(selectedCompanyId);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to load company data");
+    }
+  })();
+}, [selectedCompanyId]);
 
   async function book(slotId: string) {
     try {
@@ -267,6 +329,138 @@ export default function SchedulePage() {
                 Slots {selectedCompany ? `— ${selectedCompany.company_name}` : ""}
               </h2>
 
+              {companyProfile && (
+                <div
+                  style={{
+                    marginBottom: 16,
+                    padding: 14,
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.03)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      {companyProfile.logo_url && (
+                        <img
+                          src={companyProfile.logo_url}
+                          alt={`${selectedCompany?.company_name} logo`}
+                          style={{
+                            width: 56,
+                            height: 56,
+                            objectFit: "contain",
+                            borderRadius: 12,
+                            marginBottom: 10,
+                            background: "white",
+                            padding: 6,
+                          }}
+                        />
+                      )}
+
+                      <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
+                        {selectedCompany?.company_name}
+                      </div>
+
+                      <div className="p" style={{ marginBottom: 10 }}>
+                        {companyProfile.short_description ||
+                          "No company summary available yet."}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => setShowMore(true)}
+                    >
+                      Show more
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.02)",
+                      }}
+                    >
+                      <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                        Industry
+                      </div>
+                      <div style={{ fontWeight: 700 }}>
+                        {companyProfile.industry || "N/A"}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.02)",
+                      }}
+                    >
+                      <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                        Location
+                      </div>
+                      <div style={{ fontWeight: 700 }}>
+                        {companyProfile.location || "N/A"}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.02)",
+                      }}
+                    >
+                      <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                        Rating
+                      </div>
+                      <div style={{ fontWeight: 700 }}>
+                        {companyProfile.rating != null
+                          ? `${companyProfile.rating} / 5`
+                          : "N/A"}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.02)",
+                      }}
+                    >
+                      <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                        Reviews
+                      </div>
+                      <div style={{ fontWeight: 700 }}>
+                        {companyProfile.review_count != null
+                          ? companyProfile.review_count
+                          : "N/A"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {slots.length === 0 ? (
                 <p className="p">No slots found for this company.</p>
               ) : (
@@ -320,6 +514,187 @@ export default function SchedulePage() {
           </div>
         </div>
       </div>
+
+      {showMore && companyProfile && (
+        <div
+          onClick={() => setShowMore(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 60,
+            background: "rgba(6, 8, 14, 0.72)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            className="card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(840px, 100%)",
+              maxHeight: "85vh",
+              overflowY: "auto",
+              padding: 18,
+              background: "rgba(12, 16, 28, 0.94)",
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>
+                  {selectedCompany?.company_name || "Company profile"}
+                </h3>
+                <div className="p" style={{ marginTop: 6 }}>
+                  Detailed overview and fit information
+                </div>
+              </div>
+
+              <button type="button" className="btn" onClick={() => setShowMore(false)}>
+                Close
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: 12 }}>
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                  Description
+                </div>
+                <div style={{ fontWeight: 600 }}>
+                  {companyProfile.long_description ||
+                    companyProfile.short_description ||
+                    "No detailed company description available yet."}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                    Headquarters
+                  </div>
+                  <div style={{ fontWeight: 700 }}>
+                    {companyProfile.headquarters || "N/A"}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                    Company size
+                  </div>
+                  <div style={{ fontWeight: 700 }}>{companyProfile.company_size || "N/A"}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                    Hiring types
+                  </div>
+                  <div style={{ fontWeight: 600 }}>
+                    {companyProfile.hiring_types?.length
+                      ? companyProfile.hiring_types.join(", ")
+                      : "N/A"}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                    Website
+                  </div>
+                  {companyProfile.website ? (
+                    <a
+                      href={companyProfile.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontWeight: 700 }}
+                    >
+                      {companyProfile.website}
+                    </a>
+                  ) : (
+                    <div style={{ fontWeight: 700 }}>N/A</div>
+                  )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                  Preferred majors
+                </div>
+                <div style={{ fontWeight: 600 }}>
+                  {companyProfile.majors?.length ? companyProfile.majors.join(", ") : "N/A"}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                  background: "rgba(255,255,255,0.02)",
+                }}
+              >
+                <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                  Skills
+                </div>
+                <div style={{ fontWeight: 600 }}>
+                  {companyProfile.skills?.length ? companyProfile.skills.join(", ") : "N/A"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
