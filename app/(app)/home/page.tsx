@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 
-type Role = "student" | "company";
+type Role = "student" | "company" | "admin";
 
 export default function HomePage() {
   const router = useRouter();
@@ -82,22 +82,28 @@ export default function HomePage() {
   if (loading) {
     return (
       <main style={pageStyle}>
-        <div className="card" style={{ width: "min(820px, 100%)" }}>
+        <div className="card" style={{ width: "min(980px, 100%)" }}>
           <div className="kicker">HOME</div>
           <h1 className="h1" style={{ fontSize: 34, marginTop: 8 }}>Loading…</h1>
-          <p className="p">Fetching your profile.</p>
+          <p className="p">Fetching your dashboard.</p>
         </div>
       </main>
     );
   }
 
   const title =
-    role === "company" ? "Company Dashboard" : "Student Dashboard";
+    role === "company"
+      ? "Company Dashboard"
+      : role === "admin"
+      ? "Admin Dashboard"
+      : "Student Dashboard";
 
   const subtitle =
     role === "company"
-      ? "Manage scheduling and (soon) create time slots and view bookings."
-      : "Book time slots, track appointments, and (soon) build your profile for matching.";
+      ? "Manage scheduling and company-facing workflows."
+      : role === "admin"
+      ? "Manage positions and support the CareerKey workflow."
+      : "Complete your profile, explore your best matches, and schedule with companies.";
 
   return (
     <main style={pageStyle}>
@@ -128,36 +134,79 @@ export default function HomePage() {
         )}
 
         <div style={gridStyle}>
+          <Link href="/profile" style={linkReset}>
+            <section style={panelStyle}>
+              <div className="kicker">PROFILE</div>
+              <h2 style={panelTitle}>Build Your Profile</h2>
+              <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
+                Add your major, skills, preferences, and resume-backed details to improve matching.
+              </p>
+            </section>
+          </Link>
+
+          <Link href="/matches" style={linkReset}>
+            <section style={panelStyle}>
+              <div className="kicker">MATCHES</div>
+              <h2 style={panelTitle}>View Best Matches</h2>
+              <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
+                See the positions that best fit your background, skills, and interests.
+              </p>
+            </section>
+          </Link>
+
+          <Link href="/schedule" style={linkReset}>
+            <section style={panelStyle}>
+              <div className="kicker">SCHEDULING</div>
+              <h2 style={panelTitle}>Book a Time Slot</h2>
+              <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
+                Choose a company and reserve an available expo meeting slot.
+              </p>
+            </section>
+          </Link>
+
+          {(role === "admin" || role === "company") && (
+            <Link href="/admin/positions" style={linkReset}>
+              <section style={panelStyle}>
+                <div className="kicker">ADMIN</div>
+                <h2 style={panelTitle}>Manage Positions</h2>
+                <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
+                  Add and maintain company positions, locations, and openings.
+                </p>
+              </section>
+            </Link>
+          )}
+        </div>
+
+        <div style={gridStyle}>
           <section style={panelStyle}>
             <h2 style={panelTitle}>Quick Actions</h2>
-            <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
-              Jump into the main workflow.
-            </p>
-
             <div className="btnRow" style={{ marginTop: 12 }}>
-              <Link className="btn btnPrimary" href="/schedule">
-                Go to Schedule →
+              <Link className="btn btnPrimary" href="/matches">
+                See Matches →
               </Link>
               <Link className="btn" href="/schedule">
-                View Appointments (soon)
+                Go to Schedule
+              </Link>
+              <Link className="btn" href="/profile">
+                Update Profile
               </Link>
             </div>
           </section>
 
           <section style={panelStyle}>
-            <h2 style={panelTitle}>What’s Next</h2>
+            <h2 style={panelTitle}>What’s Available</h2>
             <ul style={listStyle}>
-              <li>Resume upload + parsing (skills/keywords)</li>
-              <li>Company criteria & match scoring</li>
-              <li>Company admin: create slot blocks & capacity</li>
-              <li>Student: “My Appointments” history</li>
+              <li>Student profile creation and editing</li>
+              <li>Resume upload with autofill support</li>
+              <li>Position-based match scoring</li>
+              <li>Scheduling with selected companies</li>
             </ul>
           </section>
         </div>
 
         <div style={footerStyle}>
           <div className="p" style={{ fontSize: 12 }}>
-            Prototype note: avoid sensitive personal data.
+            CareerKey prototype dashboard.
           </div>
         </div>
       </div>
@@ -173,7 +222,7 @@ const pageStyle: React.CSSProperties = {
 };
 
 const cardStyle: React.CSSProperties = {
-  width: "min(980px, 100%)",
+  width: "min(1100px, 100%)",
   padding: 22,
 };
 
@@ -213,11 +262,12 @@ const panelStyle: React.CSSProperties = {
   borderRadius: 18,
   padding: 16,
   background: "rgba(0,0,0,0.10)",
+  minHeight: 160,
 };
 
 const panelTitle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 16,
+  margin: "6px 0 0 0",
+  fontSize: 18,
   fontWeight: 900,
 };
 
@@ -233,4 +283,9 @@ const footerStyle: React.CSSProperties = {
   marginTop: 16,
   paddingTop: 12,
   borderTop: "1px solid rgba(233,236,241,0.12)",
+};
+
+const linkReset: React.CSSProperties = {
+  textDecoration: "none",
+  color: "inherit",
 };

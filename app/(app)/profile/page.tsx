@@ -27,7 +27,22 @@ type StudentResume = {
   file_path: string;
   created_at: string;
   raw_text: string | null;
-  parsed_json: any;
+  parsed_json:
+    | {
+        rule_parsed?: any;
+        ai_parsed?: any;
+        merged?: {
+          display_name?: string | null;
+          major?: string | null;
+          class_year?: string | null;
+          gpa?: number | null;
+          preferred_work_modes?: string[];
+          interested_role_types?: string[];
+          skills?: string[];
+          bio?: string | null;
+        };
+      }
+    | null;
 };
 
 function getProfileCompleteness(profile: StudentProfile | null) {
@@ -249,6 +264,23 @@ export default function ProfilePage() {
     }
   }
 
+  function applyParsedToForm(parsed: any) {
+    if (!parsed) return;
+
+    if (parsed.display_name) setDisplayName(parsed.display_name);
+    if (parsed.major) setMajor(parsed.major);
+    if (parsed.class_year) setClassYear(parsed.class_year);
+    if (parsed.gpa != null) setGpa(String(parsed.gpa));
+    if (parsed.preferred_work_modes?.length) {
+      setPreferredWorkModes(parsed.preferred_work_modes.join(", "));
+    }
+    if (parsed.interested_role_types?.length) {
+      setInterestedRoleTypes(parsed.interested_role_types.join(", "));
+    }
+    if (parsed.skills?.length) setSkills(parsed.skills.join(", "));
+    if (parsed.bio) setBio(parsed.bio);
+  }
+
   async function handleAutofillFromResume() {
     if (!latestResume) {
       setResumeMessage("No uploaded resume found.");
@@ -259,6 +291,14 @@ export default function ProfilePage() {
     setResumeMessage(null);
 
     try {
+      const cachedParsed = latestResume.parsed_json?.merged;
+
+      if (cachedParsed) {
+        applyParsedToForm(cachedParsed);
+        setResumeMessage("Used saved resume parsing results. Please review before saving.");
+        return;
+      }
+
       const res = await fetch("/api/parse-resume", {
         method: "POST",
         headers: {
@@ -276,14 +316,17 @@ export default function ProfilePage() {
       }
 
       const parsed = json.parsed ?? {};
+      applyParsedToForm(parsed);
 
-      if (parsed.display_name) setDisplayName(parsed.display_name);
-      if (parsed.major) setMajor(parsed.major);
-      if (parsed.class_year) setClassYear(parsed.class_year);
-      if (parsed.skills?.length) setSkills(parsed.skills.join(", "));
-      if (parsed.bio) setBio(parsed.bio);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      setResumeMessage("Resume fields applied. Please review before saving.");
+      if (user) {
+        await loadLatestResume(user.id);
+      }
+
+      setResumeMessage("Resume parsed and applied. Please review before saving.");
     } catch (err: any) {
       setResumeMessage(err?.message ?? "Resume autofill failed.");
     } finally {
@@ -428,6 +471,10 @@ export default function ProfilePage() {
                 <div style={{ fontWeight: 800, marginBottom: 6 }}>Latest uploaded resume</div>
                 <div className="p" style={{ marginBottom: 10 }}>
                   {latestResume.file_name} • {new Date(latestResume.created_at).toLocaleString()}
+                  <br />
+                  {latestResume.parsed_json?.merged
+                    ? "Parsed resume data is already saved."
+                    : "This resume has not been parsed yet."}
                 </div>
 
                 <button
@@ -436,7 +483,11 @@ export default function ProfilePage() {
                   onClick={handleAutofillFromResume}
                   disabled={autofillLoading}
                 >
-                  {autofillLoading ? "Applying..." : "Autofill From Resume"}
+                  {autofillLoading
+                    ? "Applying..."
+                    : latestResume?.parsed_json?.merged
+                    ? "Use Saved Autofill"
+                    : "Autofill From Resume"}
                 </button>
               </div>
             )}
