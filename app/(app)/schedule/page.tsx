@@ -37,6 +37,37 @@ type CompanyProfile = {
   last_refreshed_at: string | null;
 };
 
+type CompanyPosition = {
+  id: string;
+  company_id: string;
+  title: string;
+  location_city: string | null;
+  location_state: string | null;
+  location_country: string | null;
+  location_label: string | null;
+  work_mode: "On-site" | "Hybrid" | "Remote" | null;
+  openings: number;
+  majors: string[] | null;
+  skills: string[] | null;
+  description: string | null;
+};
+
+type StudentProfile = {
+  user_id: string;
+  display_name: string | null;
+  major: string | null;
+  class_year: string | null;
+  gpa: number | null;
+  work_authorization: string | null;
+  open_to_relocation: boolean | null;
+  preferred_locations: string[] | null;
+  interested_role_types: string[] | null;
+  preferred_work_modes: string[] | null;
+  industries_of_interest: string[] | null;
+  skills: string[] | null;
+  bio: string | null;
+};
+
 function getOrCreateStudentId(): string {
   const key = "careerkey_student_id";
   const existing = localStorage.getItem(key);
@@ -62,10 +93,12 @@ export default function SchedulePage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [positions, setPositions] = useState<CompanyPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [bookingId, setBookingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
+  const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [showMore, setShowMore] = useState(false);
 
   // Timezone selector (defaults to user's timezone, persisted in localStorage)
@@ -79,6 +112,44 @@ export default function SchedulePage() {
     () => companies.find((c) => c.id === selectedCompanyId) ?? null,
     [companies, selectedCompanyId]
   );
+
+  const totalOpenings = useMemo(
+    () => positions.reduce((sum, p) => sum + (p.openings ?? 0), 0),
+    [positions]
+  );
+
+  const totalRoles = useMemo(() => positions.length, [positions]);
+
+  const topLocations = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    for (const p of positions) {
+      const label =
+        p.location_label ||
+        [p.location_city, p.location_state].filter(Boolean).join(", ") ||
+        p.work_mode ||
+        "Unspecified";
+
+      counts.set(label, (counts.get(label) ?? 0) + (p.openings ?? 0));
+    }
+
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+  }, [positions]);
+
+  const sortedPositions = useMemo(() => {
+    return [...positions].sort((a, b) => {
+      const matchA = computePositionMatch(a, studentProfile).score;
+      const matchB = computePositionMatch(b, studentProfile).score;
+      return matchB - matchA;
+    });
+  }, [positions, studentProfile]);
+
+  const bestCompanyMatch = useMemo(() => {
+    if (positions.length === 0) return null;
+    return Math.max(...positions.map((p) => computePositionMatch(p, studentProfile).score));
+  }, [positions, studentProfile]);
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -144,6 +215,40 @@ export default function SchedulePage() {
     setCompanyProfile(data ?? null);
     setShowMore(false);
   }
+
+  async function loadPositions(companyId: string) {
+    const { data, error } = await supabase
+      .from("company_positions")
+      .select("*")
+      .eq("company_id", companyId)
+      .order("title");
+
+    if (error) throw error;
+
+    setPositions(data ?? []);
+  }
+
+  async function loadStudentProfile() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setStudentProfile(null);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("student_profiles")
+      .select("*")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    setStudentProfile(data ?? null);
+  }
+
   async function refreshCompanyProfile(companyId: string) {
   const res = await fetch("/api/company-insights", {
     method: "POST",
@@ -168,8 +273,9 @@ export default function SchedulePage() {
         setLoading(true);
         setError(null);
         await loadCompanies();
+        await loadStudentProfile();
       } catch (e: any) {
-        setError(e?.message ?? "Failed to load companies");
+        setError(e?.message ?? "Failed to load page data");
       } finally {
         setLoading(false);
       }
@@ -186,11 +292,10 @@ useEffect(() => {
       setShowMore(false);
 
       await Promise.all([
-        loadSlots(selectedCompanyId),
-        loadCompanyProfile(selectedCompanyId),
+         loadSlots(selectedCompanyId),
+         loadCompanyProfile(selectedCompanyId),
+         loadPositions(selectedCompanyId),
       ]);
-
-      await refreshCompanyProfile(selectedCompanyId);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load company data");
     }
@@ -232,6 +337,94 @@ useEffect(() => {
       timeStyle: "short",
     });
 
+  function normalizeList(values: string[] | null | undefined) {
+    return (values ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean);
+  }
+
+  function computePositionMatch(position: CompanyPosition, profile: StudentProfile | null) {
+    if (!profile) {
+      return {
+        score: 0,
+        reasons: ["Complete your profile to see a match score."],
+      };
+    }
+
+    let score = 0;
+    const reasons: string[] = [];
+
+    const studentSkills = normalizeList(profile.skills);
+    const positionSkills = normalizeList(position.skills);
+
+    if (positionSkills.length > 0) {
+      const matchedSkills = positionSkills.filter((skill) => studentSkills.includes(skill));
+      const skillScore = Math.round((matchedSkills.length / positionSkills.length) * 35);
+      score += skillScore;
+
+      if (matchedSkills.length > 0) {
+        reasons.push(`matched skills: ${matchedSkills.join(", ")}`);
+      }
+    }
+
+    const studentMajor = profile.major?.trim().toLowerCase();
+    const positionMajors = normalizeList(position.majors);
+
+    if (studentMajor && positionMajors.length > 0) {
+      const exactMajorMatch = positionMajors.some((m) => m === studentMajor);
+      const partialMajorMatch = positionMajors.some(
+        (m) => m.includes(studentMajor) || studentMajor.includes(m)
+      );
+
+      if (exactMajorMatch) {
+        score += 25;
+        reasons.push("major aligns strongly");
+      } else if (partialMajorMatch) {
+        score += 15;
+        reasons.push("major partially aligns");
+      }
+    }
+
+    const preferredLocations = normalizeList(profile.preferred_locations);
+    const positionLocation = (
+      position.location_label ||
+      [position.location_city, position.location_state].filter(Boolean).join(", ")
+    )
+      .trim()
+      .toLowerCase();
+
+    if (positionLocation) {
+      const exactLocation = preferredLocations.some((loc) => positionLocation.includes(loc));
+      if (exactLocation) {
+        score += 20;
+        reasons.push("preferred location match");
+      } else if (profile.open_to_relocation) {
+        score += 10;
+        reasons.push("open to relocation");
+      }
+    }
+
+    const preferredWorkModes = normalizeList(profile.preferred_work_modes);
+    const positionWorkMode = position.work_mode?.trim().toLowerCase();
+
+    if (positionWorkMode && preferredWorkModes.includes(positionWorkMode)) {
+      score += 10;
+      reasons.push(`${position.work_mode} work preference match`);
+    }
+
+    const roleTypes = normalizeList(profile.interested_role_types);
+    const titleAndDescription = `${position.title} ${position.description ?? ""}`.toLowerCase();
+
+    const matchedRoleType = roleTypes.find((roleType) => titleAndDescription.includes(roleType));
+    if (matchedRoleType) {
+      score += 10;
+      reasons.push(`${matchedRoleType} interest match`);
+    }
+
+    return {
+      score: Math.min(score, 100),
+      reasons: reasons.length ? reasons : ["Limited profile overlap so far."],
+    };
+  }
+
   return (
     <div className="container">
       <div className="shell">
@@ -247,6 +440,9 @@ useEffect(() => {
             </Link>
             <Link className="navlink navlinkActive" href="/schedule">
               Schedule
+            </Link>
+            <Link className="navlink" href="/admin/positions">
+              Admin
             </Link>
             <button className="navlink" type="button" onClick={handleLogout}>
               Log out
@@ -415,11 +611,9 @@ useEffect(() => {
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
-                        Location
+                        Open positions
                       </div>
-                      <div style={{ fontWeight: 700 }}>
-                        {companyProfile.location || "N/A"}
-                      </div>
+                      <div style={{ fontWeight: 700 }}>{totalOpenings}</div>
                     </div>
 
                     <div
@@ -431,13 +625,9 @@ useEffect(() => {
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
-                        Rating
+                        Listed roles
                       </div>
-                      <div style={{ fontWeight: 700 }}>
-                        {companyProfile.rating != null
-                          ? `${companyProfile.rating} / 5`
-                          : "N/A"}
-                      </div>
+                      <div style={{ fontWeight: 700 }}>{totalRoles}</div>
                     </div>
 
                     <div
@@ -449,12 +639,54 @@ useEffect(() => {
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
-                        Reviews
+                        Best match
                       </div>
                       <div style={{ fontWeight: 700 }}>
-                        {companyProfile.review_count != null
-                          ? companyProfile.review_count
+                        {bestCompanyMatch != null ? `${bestCompanyMatch}%` : "N/A"}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.02)",
+                        gridColumn: "1 / -1",
+                      }}
+                    >
+                      <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                        Top locations
+                      </div>
+                      <div style={{ fontWeight: 700 }}>
+                        {topLocations.length
+                          ? topLocations
+                              .map(([label, count]) => `${label} (${count})`)
+                              .join(", ")
                           : "N/A"}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: 10,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "rgba(255,255,255,0.02)",
+                        gridColumn: "1 / -1",
+                      }}
+                    >
+                      <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
+                        Website
+                      </div>
+                      <div style={{ fontWeight: 700 }}>
+                        {companyProfile.website ? (
+                          <a href={companyProfile.website} target="_blank" rel="noreferrer">
+                            {companyProfile.website}
+                          </a>
+                        ) : (
+                          "N/A"
+                        )}
                       </div>
                     </div>
                   </div>
@@ -690,6 +922,76 @@ useEffect(() => {
                 <div style={{ fontWeight: 600 }}>
                   {companyProfile.skills?.length ? companyProfile.skills.join(", ") : "N/A"}
                 </div>
+              </div>
+
+              <div style={{ marginTop: 16 }}>
+                <h3 style={{ marginBottom: 12 }}>Available Positions</h3>
+
+                {positions.length === 0 ? (
+                  <p className="p">No positions listed for this company yet.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {sortedPositions.map((p) => {
+                      const match = computePositionMatch(p, studentProfile);
+
+                      return (
+                        <div key={p.id} className="card" style={{ padding: 12 }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              gap: 12,
+                              marginBottom: 4,
+                            }}
+                          >
+                            <div style={{ fontWeight: 800 }}>{p.title}</div>
+                            <div
+                              style={{
+                                padding: "6px 10px",
+                                borderRadius: 999,
+                                border: "1px solid var(--border)",
+                                background: "rgba(87, 112, 255, 0.12)",
+                                fontWeight: 800,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {match.score}% Match
+                            </div>
+                          </div>
+
+                          <div className="p" style={{ fontSize: 13, marginBottom: 6 }}>
+                            {p.location_label || "Location not provided"}
+                            {p.work_mode ? ` • ${p.work_mode}` : ""}
+                            {` • ${p.openings} opening${p.openings === 1 ? "" : "s"}`}
+                          </div>
+
+                          <div className="p" style={{ fontSize: 13, marginBottom: 8 }}>
+                            Why: {match.reasons.join(" • ")}
+                          </div>
+
+                          {p.description && (
+                            <div className="p" style={{ marginBottom: 6 }}>
+                              {p.description}
+                            </div>
+                          )}
+
+                          {p.majors?.length ? (
+                            <div className="p" style={{ fontSize: 13 }}>
+                              <b>Majors:</b> {p.majors.join(", ")}
+                            </div>
+                          ) : null}
+
+                          {p.skills?.length ? (
+                            <div className="p" style={{ fontSize: 13 }}>
+                              <b>Skills:</b> {p.skills.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
