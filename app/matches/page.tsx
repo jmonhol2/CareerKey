@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import AppNav from "@/components/AppNav";
 
 type StudentProfile = {
   user_id: string;
@@ -285,15 +286,7 @@ export default function MatchesPage() {
   return (
     <div className="container">
       <div className="shell">
-        <div className="nav">
-          <div className="brand">CareerKey</div>
-          <div className="navlinks">
-            <Link className="navlink" href="/home">Home</Link>
-            <Link className="navlink" href="/schedule">Schedule</Link>
-            <Link className="navlink" href="/profile">Profile</Link>
-            <Link className="navlink navlinkActive" href="/matches">Matches</Link>
-          </div>
-        </div>
+        <AppNav />
 
         <div className="main">
           <div className="kicker">BEST MATCHES</div>

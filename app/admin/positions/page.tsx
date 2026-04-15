@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import AppNav from "@/components/AppNav";
 
 type Company = {
   id: string;
@@ -88,12 +88,7 @@ export default function AdminPositionsPage() {
   return (
     <div className="container">
       <div className="shell">
-        <div className="nav">
-          <div className="brand">CareerKey Admin</div>
-          <div className="navlinks">
-            <Link className="navlink" href="/schedule">Schedule</Link>
-          </div>
-        </div>
+        <AppNav />
 
         <div className="main">
           <div className="kicker">ADMIN</div>

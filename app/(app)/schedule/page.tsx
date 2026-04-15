@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import AppNav from "@/components/AppNav";
 
 type Company = {
   id: string;
@@ -434,27 +434,7 @@ useEffect(() => {
   return (
     <div className="container">
       <div className="shell">
-        {/* Top nav */}
-        <div className="nav">
-          <div className="brand">
-            CareerKey <span className="badge">Scheduling</span>
-          </div>
-
-          <div className="navlinks">
-            <Link className="navlink" href="/home">
-              Home
-            </Link>
-            <Link className="navlink navlinkActive" href="/schedule">
-              Schedule
-            </Link>
-            <Link className="navlink" href="/admin/positions">
-              Admin
-            </Link>
-            <button className="navlink" type="button" onClick={handleLogout}>
-              Log out
-            </button>
-          </div>
-        </div>
+        <AppNav />
 
         <div className="main">
           <div className="kicker">EXPO SCHEDULING</div>

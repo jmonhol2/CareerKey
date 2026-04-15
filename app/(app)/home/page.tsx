@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
+import AppNav from "@/components/AppNav";
 
 type Role = "student" | "company" | "admin";
 
@@ -108,6 +109,8 @@ export default function HomePage() {
   return (
     <main style={pageStyle}>
       <div className="card" style={cardStyle}>
+        <AppNav />
+
         <div style={headerRow}>
           <div>
             <div className="kicker">HOME</div>
