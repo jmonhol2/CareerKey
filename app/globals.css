@@ -178,3 +178,11 @@ button.navlink:hover {
   border-color: var(--border) !important;
   color: var(--text) !important;
 }
+
+/* Keep native dropdown text readable across browsers. */
+select,
+option,
+optgroup {
+  color: #1f2937;
+  background-color: #ffffff;
+}

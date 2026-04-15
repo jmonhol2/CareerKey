@@ -35,8 +35,13 @@ export default function AppNav() {
         <Link className="navlink" href="/admin/positions">
           Admin
         </Link>
+
         <Link className={`navlink ${pathname === "/profile" ? "navlinkActive" : ""}`} href="/profile">
           Profile
+        </Link>
+        
+        <Link className={`navlink ${pathname === "/matches" ? "navlinkActive" : ""}`} href="/matches">
+          Matches
         </Link>
 
         <button className="navlink" onClick={logout} type="button">

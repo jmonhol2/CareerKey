@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
 type Company = {
@@ -89,6 +89,8 @@ function getOrInitTimeZone(): string {
 
 export default function SchedulePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const companyIdFromUrl = searchParams.get("companyId");
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
@@ -166,7 +168,11 @@ export default function SchedulePage() {
     if (error) throw error;
 
     setCompanies(data ?? []);
-    if (!selectedCompanyId && data?.length) setSelectedCompanyId(data[0].id);
+    if (companyIdFromUrl && data?.some((c) => c.id === companyIdFromUrl)) {
+      setSelectedCompanyId(companyIdFromUrl);
+    } else if (!selectedCompanyId && data?.length) {
+      setSelectedCompanyId(data[0].id);
+    }
   }
 
   async function loadSlots(companyId: string) {
