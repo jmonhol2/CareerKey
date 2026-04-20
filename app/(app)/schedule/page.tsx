@@ -8,6 +8,15 @@ import AppNav from "@/components/AppNav";
 type Company = {
   id: string;
   company_name: string;
+  time_slots?: CompanyTimeSlot[] | null;
+};
+
+type CompanyTimeSlot = {
+  id: string;
+  company_id: string;
+  start_time: string;
+  end_time: string;
+  capacity: number;
 };
 
 type Slot = {
@@ -68,14 +77,73 @@ type StudentProfile = {
   bio: string | null;
 };
 
-function getOrCreateStudentId(): string {
-  const key = "careerkey_student_id";
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  const newId = crypto.randomUUID();
-  localStorage.setItem(key, newId);
-  return newId;
-}
+type BookedAppointment = {
+  id: string;
+  slotId: string;
+  companyId: string;
+  companyName: string;
+  startTime: string;
+  endTime: string;
+};
+
+type RecommendedSlot = {
+  id: string;
+  companyId: string;
+  companyName: string;
+  start_time: string;
+  end_time: string;
+  matchScore: number;
+};
+
+type GapRange = {
+  start: string;
+  end: string;
+};
+
+type AppointmentSlotJoin = {
+  id: string;
+  company_id: string;
+  start_time: string;
+  end_time: string;
+  company:
+    | {
+        id: string;
+        company_name: string;
+      }
+    | {
+        id: string;
+        company_name: string;
+      }[]
+    | null;
+};
+
+type BookedAppointmentRow = {
+  id: string;
+  status: string;
+  slot: AppointmentSlotJoin | AppointmentSlotJoin[] | null;
+};
+
+type CompanyJoin = {
+    id: string;
+    company_name: string;
+  };
+
+function normalizeJoinedSlot(slot: BookedAppointmentRow["slot"]) {
+  if (!slot) return null;
+  const normalizedSlot = Array.isArray(slot) ? slot[0] : slot;
+  if (!normalizedSlot) return null;
+
+  const normalizedCompany = Array.isArray(normalizedSlot.company)
+    ? normalizedSlot.company[0]
+    : normalizedSlot.company;
+
+  return {
+    ...normalizedSlot,
+    company: (normalizedCompany ?? null) as CompanyJoin | null,
+  };
+};
+
+type RenderedCompany = Company & { score: number };
 
 function getDefaultTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -101,7 +169,11 @@ export default function SchedulePage() {
   const [error, setError] = useState<string | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
+  const [companyMatchScores, setCompanyMatchScores] = useState<Record<string, number>>({});
+  const [filterMode, setFilterMode] = useState<"matches" | "all">("matches");
   const [showMore, setShowMore] = useState(false);
+  const [bookedAppointments, setBookedAppointments] = useState<BookedAppointment[]>([]);
+  const [recommendedSlots, setRecommendedSlots] = useState<RecommendedSlot[]>([]);
 
   // Timezone selector (defaults to user's timezone, persisted in localStorage)
   const [timeZone, setTimeZone] = useState<string>(getOrInitTimeZone());
@@ -160,18 +232,28 @@ export default function SchedulePage() {
   }
 
   async function loadCompanies() {
-    const { data, error } = await supabase
+    const { data: companies, error } = await supabase
       .from("companies")
-      .select("id, company_name")
-      .order("company_name");
+      .select(`
+        id,
+        company_name,
+        time_slots (
+          id,
+          company_id,
+          start_time,
+          end_time,
+          capacity
+        )
+      `)
+      .order("company_name", { ascending: true });
 
     if (error) throw error;
 
-    setCompanies(data ?? []);
-    if (companyIdFromUrl && data?.some((c) => c.id === companyIdFromUrl)) {
+    setCompanies(companies ?? []);
+    if (companyIdFromUrl && companies?.some((c) => c.id === companyIdFromUrl)) {
       setSelectedCompanyId(companyIdFromUrl);
-    } else if (!selectedCompanyId && data?.length) {
-      setSelectedCompanyId(data[0].id);
+    } else if (!selectedCompanyId && companies?.length) {
+      setSelectedCompanyId(companies[0].id);
     }
   }
 
@@ -201,7 +283,7 @@ export default function SchedulePage() {
       }
     }
 
-    const merged: Slot[] = (slotRows ?? []).map((s: any) => ({
+    const merged: Slot[] = ((slotRows ?? []) as Array<Omit<Slot, "booked">>).map((s) => ({
       ...s,
       booked: bookedMap.get(s.id) ?? 0,
     }));
@@ -241,7 +323,7 @@ export default function SchedulePage() {
 
     if (!user) {
       setStudentProfile(null);
-      return;
+      return null;
     }
 
     const { data, error } = await supabase
@@ -252,7 +334,94 @@ export default function SchedulePage() {
 
     if (error) throw error;
 
-    setStudentProfile(data ?? null);
+    const profile = (data as StudentProfile | null) ?? null;
+    setStudentProfile(profile);
+    return profile;
+  }
+
+  async function loadCompanyMatchScores(profile: StudentProfile | null) {
+    if (!profile) {
+      setCompanyMatchScores({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("company_positions")
+      .select("*");
+
+    if (error) throw error;
+
+    const scores: Record<string, number> = {};
+
+    for (const position of (data as CompanyPosition[]) ?? []) {
+      const score = computePositionMatch(position, profile).score;
+      const currentBest = scores[position.company_id] ?? 0;
+      if (score > currentBest) {
+        scores[position.company_id] = score;
+      }
+    }
+
+    setCompanyMatchScores(scores);
+  }
+
+  async function loadBookedAppointments() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setBookedAppointments([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .select(`
+        id,
+        status,
+        slot:time_slots (
+          id,
+          company_id,
+          start_time,
+          end_time,
+          company:companies (
+            id,
+            company_name
+          )
+        )
+      `)
+      .eq("student_id", user.id)
+      .eq("status", "booked");
+
+    if (error) {
+      console.error("Failed to load booked appointments:", error);
+      setBookedAppointments([]);
+      return;
+    }
+
+    const rows = (data as unknown as BookedAppointmentRow[] | null) ?? [];
+
+    const normalized =
+      rows
+        .map((appt) => {
+          const slot = normalizeJoinedSlot(appt.slot);
+
+          return {
+            id: appt.id,
+            slotId: slot?.id ?? "",
+            companyId: slot?.company_id ?? "",
+            companyName: slot?.company?.company_name ?? "Unknown Company",
+            startTime: slot?.start_time ?? "",
+            endTime: slot?.end_time ?? "",
+          };
+        })
+        .filter((appt) => appt.slotId && appt.startTime && appt.endTime)
+        .sort(
+          (a, b) =>
+            new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+        ) ?? [];
+
+    setBookedAppointments(normalized);
   }
 
   async function refreshCompanyProfile(companyId: string) {
@@ -278,10 +447,11 @@ export default function SchedulePage() {
       try {
         setLoading(true);
         setError(null);
-        await loadCompanies();
-        await loadStudentProfile();
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load page data");
+        await Promise.all([loadCompanies(), loadBookedAppointments()]);
+        const profile = await loadStudentProfile();
+        await loadCompanyMatchScores(profile);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load page data");
       } finally {
         setLoading(false);
       }
@@ -302,35 +472,37 @@ useEffect(() => {
          loadCompanyProfile(selectedCompanyId),
          loadPositions(selectedCompanyId),
       ]);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load company data");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load company data");
     }
   })();
 }, [selectedCompanyId]);
 
-  async function book(slotId: string) {
+  async function bookSlot(slotId: string) {
     try {
       setBookingId(slotId);
       setError(null);
 
-      const studentId = getOrCreateStudentId();
-
       const { data, error } = await supabase.rpc("book_slot", {
         p_slot_id: slotId,
-        p_student_id: studentId,
       });
 
-      if (error) throw error;
+      if (error) {
+        setError(`Booking failed: ${error.message}`);
+        return;
+      }
 
       if (selectedCompanyId) await loadSlots(selectedCompanyId);
+      await loadBookedAppointments();
+      setError(null);
 
       router.push(
         `/schedule/confirmation?appointmentId=${encodeURIComponent(
           String(data)
         )}&slotId=${encodeURIComponent(slotId)}&tz=${encodeURIComponent(timeZone)}`
       );
-    } catch (e: any) {
-      setError(e?.message ?? "Booking failed");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Booking failed");
     } finally {
       setBookingId(null);
     }
@@ -342,6 +514,42 @@ useEffect(() => {
       dateStyle: "medium",
       timeStyle: "short",
     });
+
+  function toMinutes(ts: string) {
+    const d = new Date(ts);
+    return d.getHours() * 60 + d.getMinutes();
+  }
+
+  function formatTimeLabel(ts: string) {
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  function getGapRanges(events: BookedAppointment[]): GapRange[] {
+    if (events.length < 2) return [];
+
+    const sorted = [...events].sort(
+      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+    );
+
+    const gaps: GapRange[] = [];
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const currentEnd = new Date(sorted[i].endTime).getTime();
+      const nextStart = new Date(sorted[i + 1].startTime).getTime();
+
+      if (nextStart > currentEnd) {
+        gaps.push({
+          start: sorted[i].endTime,
+          end: sorted[i + 1].startTime,
+        });
+      }
+    }
+
+    return gaps;
+  }
 
   function normalizeList(values: string[] | null | undefined) {
     return (values ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean);
@@ -431,6 +639,117 @@ useEffect(() => {
     };
   }
 
+  const renderedCompanies = useMemo<RenderedCompany[]>(() => {
+    const matchedCompanies = companies
+      .map((company) => ({
+        ...company,
+        score: companyMatchScores[company.id] ?? 0,
+      }))
+      .filter((company) => filterMode === "all" || company.score > 0);
+
+    return matchedCompanies;
+  }, [companies, companyMatchScores, filterMode]);
+
+  const companySlots = useMemo(() => {
+    return slots
+      .filter((slot) => slot.company_id === selectedCompany?.id)
+      .sort(
+        (a, b) =>
+          new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+      );
+  }, [slots, selectedCompany]);
+
+  useEffect(() => {
+    if (!companies.length || !bookedAppointments.length) {
+      setRecommendedSlots([]);
+      return;
+    }
+
+    const gaps = getGapRanges(bookedAppointments);
+
+    if (!gaps.length) {
+      setRecommendedSlots([]);
+      return;
+    }
+
+    const alreadyBookedSlotIds = new Set(bookedAppointments.map((appt) => appt.slotId));
+
+    const allAvailableSlots = companies.flatMap((company) => {
+      const companySlotsWithMeta = (company.time_slots ?? []).map((slot) => ({
+        id: slot.id,
+        companyId: company.id,
+        companyName: company.company_name,
+        start_time: slot.start_time,
+        end_time: slot.end_time,
+        matchScore: companyMatchScores[company.id] ?? 0,
+      }));
+
+      return companySlotsWithMeta;
+    });
+
+    const fitsGap = (slot: RecommendedSlot) => {
+      const slotStart = new Date(slot.start_time).getTime();
+      const slotEnd = new Date(slot.end_time).getTime();
+
+      return gaps.some((gap) => {
+        const gapStart = new Date(gap.start).getTime();
+        const gapEnd = new Date(gap.end).getTime();
+
+        return slotStart >= gapStart && slotEnd <= gapEnd;
+      });
+    };
+
+    const recommended = allAvailableSlots
+      .filter((slot) => !alreadyBookedSlotIds.has(slot.id))
+      .filter((slot) => fitsGap(slot))
+      .sort((a, b) => {
+        const scoreDiff = (b.matchScore ?? 0) - (a.matchScore ?? 0);
+        if (scoreDiff !== 0) return scoreDiff;
+
+        return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+      });
+
+    setRecommendedSlots(recommended);
+  }, [companies, bookedAppointments, companyMatchScores]);
+
+  const allTimes = bookedAppointments.flatMap((appt) => [
+    toMinutes(appt.startTime),
+    toMinutes(appt.endTime),
+  ]);
+
+  const earliest = allTimes.length ? Math.min(...allTimes) : 9 * 60;
+  const latest = allTimes.length ? Math.max(...allTimes) : 17 * 60;
+  const TIMELINE_PADDING_MINUTES = 60;
+  const PIXELS_PER_30_MIN = 84;
+  const PIXELS_PER_MINUTE = PIXELS_PER_30_MIN / 30;
+
+  const TIMELINE_START = Math.max(
+    0,
+    Math.floor(earliest / 30) * 30 - TIMELINE_PADDING_MINUTES
+  );
+  const TIMELINE_END = Math.min(
+    24 * 60,
+    Math.ceil(latest / 30) * 30 + TIMELINE_PADDING_MINUTES
+  );
+
+  const totalMinutes = Math.max(1, TIMELINE_END - TIMELINE_START);
+  const TIMELINE_HEIGHT = Math.max(Math.round(totalMinutes * PIXELS_PER_MINUTE), 420);
+
+  function minuteToY(minute: number) {
+    return ((minute - TIMELINE_START) / totalMinutes) * TIMELINE_HEIGHT;
+  }
+
+  const timelineHours: number[] = [];
+  for (let m = TIMELINE_START; m <= TIMELINE_END; m += 30) {
+    timelineHours.push(m);
+  }
+
+  const scheduleGaps = getGapRanges(bookedAppointments).map((gap) => ({
+    ...gap,
+    startMin: toMinutes(gap.start),
+    endMin: toMinutes(gap.end),
+  }));
+
   return (
     <div className="container">
       <div className="shell">
@@ -480,8 +799,21 @@ useEffect(() => {
           >
             <section className="card">
               <h2 style={{ fontSize: 16, marginTop: 0 }}>Companies</h2>
+              <div style={{ marginBottom: 10 }}>
+                <label className="p" style={{ fontSize: 13, marginRight: 8 }}>
+                  View:
+                </label>
+                <select
+                  value={filterMode}
+                  onChange={(e) => setFilterMode(e.target.value as "matches" | "all")}
+                  style={fieldStyle}
+                >
+                  <option value="matches">Top Matches Only</option>
+                  <option value="all">Show All Listings</option>
+                </select>
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {companies.map((c) => {
+                {renderedCompanies.map((c) => {
                   const active = c.id === selectedCompanyId;
                   return (
                     <button
@@ -500,9 +832,19 @@ useEffect(() => {
                       type="button"
                     >
                       {c.company_name}
+                      {filterMode === "matches" && (
+                        <span style={{ marginLeft: 8, opacity: 0.8 }}>
+                          ({c.score}%)
+                        </span>
+                      )}
                     </button>
                   );
                 })}
+                {renderedCompanies.length === 0 && (
+                  <p className="p" style={{ margin: 0 }}>
+                    No matching companies found. Switch to "Show All Listings".
+                  </p>
+                )}
               </div>
             </section>
 
@@ -679,11 +1021,11 @@ useEffect(() => {
                 </div>
               )}
 
-              {slots.length === 0 ? (
+              {companySlots.length === 0 ? (
                 <p className="p">No slots found for this company.</p>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {slots.map((s) => {
+                  {companySlots.map((s) => {
                     const full = s.booked >= s.capacity;
                     return (
                       <div
@@ -709,7 +1051,7 @@ useEffect(() => {
 
                         <button
                           disabled={full || bookingId === s.id}
-                          onClick={() => book(s.id)}
+                          onClick={() => bookSlot(s.id)}
                           className={`btn ${!full ? "btnPrimary" : ""}`}
                           style={{
                             opacity: bookingId === s.id ? 0.7 : 1,
@@ -730,6 +1072,307 @@ useEffect(() => {
               )}
             </section>
           </div>
+
+          <section
+            style={{
+              marginTop: "32px",
+              padding: "24px",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "24px",
+              background:
+                "linear-gradient(135deg, rgba(17,24,39,0.88) 0%, rgba(8,15,30,0.92) 100%)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+              backdropFilter: "blur(10px)",
+              color: "white",
+            }}
+          >
+            <h2 style={{ marginBottom: "18px", fontSize: "2rem", fontWeight: 800 }}>
+              My Schedule
+            </h2>
+
+            {bookedAppointments.length === 0 ? (
+              <p style={{ color: "rgba(255,255,255,0.72)" }}>No booked appointments yet.</p>
+            ) : (
+              <div
+                style={{
+                  maxHeight: "560px",
+                  overflowY: "auto",
+                  paddingRight: "6px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "90px 1fr",
+                    gap: "18px",
+                    alignItems: "start",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "relative",
+                      height: `${TIMELINE_HEIGHT}px`,
+                    }}
+                  >
+                    {timelineHours.map((minute) => (
+                      <div
+                        key={minute}
+                        style={{
+                          position: "absolute",
+                          top: `${minuteToY(minute)}px`,
+                          transform: "translateY(-50%)",
+                          fontSize: "15px",
+                          color: "rgba(255,255,255,0.72)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {formatTimeLabel(
+                          new Date(
+                            2026,
+                            1,
+                            19,
+                            Math.floor(minute / 60),
+                            minute % 60
+                          ).toISOString()
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      position: "relative",
+                      height: `${TIMELINE_HEIGHT}px`,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: "20px",
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.03) 100%)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {timelineHours.map((minute) => (
+                      <div
+                        key={minute}
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          right: 0,
+                          top: `${minuteToY(minute)}px`,
+                          borderTop: "1px solid rgba(255,255,255,0.07)",
+                        }}
+                      />
+                    ))}
+
+                    {scheduleGaps.map((gap, idx) => {
+                      const top = minuteToY(gap.startMin);
+                      const height = Math.max(
+                        minuteToY(gap.endMin) - minuteToY(gap.startMin),
+                        20
+                      );
+
+                      return (
+                        <div
+                          key={`gap-${idx}`}
+                          style={{
+                            position: "absolute",
+                            left: "14px",
+                            right: "14px",
+                            top: `${top}px`,
+                            height: `${height}px`,
+                            borderRadius: "16px",
+                            background: "rgba(34, 197, 94, 0.08)",
+                            border: "1px dashed rgba(74, 222, 128, 0.25)",
+                          }}
+                        />
+                      );
+                    })}
+
+                    {bookedAppointments.map((appt, index) => {
+                      const startMin = toMinutes(appt.startTime);
+                      const endMin = toMinutes(appt.endTime);
+
+                    const top = minuteToY(startMin);
+                    const nextAppt = bookedAppointments[index + 1];
+                    const nextTop = nextAppt
+                      ? minuteToY(toMinutes(nextAppt.startTime))
+                      : null;
+
+                    const height = Math.max(minuteToY(endMin) - minuteToY(startMin), 44);
+                    const shrunkHeight = Math.max(height - 8, 35);
+                    const maxHeightBeforeNext =
+                      nextTop != null ? Math.max(nextTop - top - 6, 22) : shrunkHeight;
+                    const visualHeight = Math.min(shrunkHeight, maxHeightBeforeNext);
+
+                      return (
+                        <div
+                          key={appt.id}
+                          style={{
+                            position: "absolute",
+                            left: "16px",
+                            right: "16px",
+                            top: `${top}px`,
+                            height: `${visualHeight}px`,
+                            zIndex: index + 1,
+                            borderRadius: "18px",
+                            background:
+                              "linear-gradient(135deg, rgba(59,130,246,0.35) 0%, rgba(96,165,250,0.22) 100%)",
+                            border: "1px solid rgba(96,165,250,0.45)",
+                            padding: "12px 16px",
+                            boxSizing: "border-box",
+                            overflow: "hidden",
+                            boxShadow: "0 8px 20px rgba(37, 99, 235, 0.12)",
+                            color: "white",
+                          }}
+                        >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: "12px",
+                            width: "100%",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              fontSize: "1.1rem",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {appt.companyName}
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize: "0.92rem",
+                              color: "rgba(255,255,255,0.78)",
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {formatTimeLabel(appt.startTime)} – {formatTimeLabel(appt.endTime)}
+                          </div>
+                        </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section
+            style={{
+              marginTop: "28px",
+              padding: "24px",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: "24px",
+              background:
+                "linear-gradient(135deg, rgba(17,24,39,0.88) 0%, rgba(8,15,30,0.92) 100%)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+              backdropFilter: "blur(10px)",
+              color: "white",
+            }}
+          >
+            <h2 style={{ marginBottom: "18px", fontSize: "2rem", fontWeight: 800 }}>
+              Recommended to Fill Gaps
+            </h2>
+
+            {recommendedSlots.length === 0 ? (
+              <p style={{ color: "rgba(255,255,255,0.72)" }}>No recommendations yet.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                {recommendedSlots.map((slot, index) => (
+                  <div
+                    key={slot.id}
+                    style={{
+                      padding: "18px 18px",
+                      borderRadius: "20px",
+                      background:
+                        index === 0
+                          ? "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(16,185,129,0.10) 100%)"
+                          : "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.03) 100%)",
+                      border:
+                        index === 0
+                          ? "1px solid rgba(74,222,128,0.35)"
+                          : "1px solid rgba(255,255,255,0.08)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "18px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: "1.1rem" }}>
+                        {slot.companyName}
+                        {index === 0 && (
+                          <span
+                            style={{
+                              marginLeft: "10px",
+                              fontSize: "0.78rem",
+                              fontWeight: 700,
+                              padding: "4px 8px",
+                              borderRadius: "999px",
+                              background: "rgba(74,222,128,0.18)",
+                              border: "1px solid rgba(74,222,128,0.3)",
+                              color: "#86efac",
+                            }}
+                          >
+                            Best Fit
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "4px",
+                          color: "rgba(255,255,255,0.78)",
+                          fontSize: "0.95rem",
+                        }}
+                      >
+                        {formatTimeLabel(slot.start_time)} – {formatTimeLabel(slot.end_time)}
+                      </div>
+
+                      <div
+                        style={{
+                          marginTop: "6px",
+                          fontSize: "0.95rem",
+                          color:
+                            (slot.matchScore ?? 0) > 0 ? "#93c5fd" : "rgba(255,255,255,0.68)",
+                        }}
+                      >
+                        Match: {slot.matchScore ?? 0}%
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => bookSlot(slot.id)}
+                      style={{
+                        padding: "12px 18px",
+                        borderRadius: "16px",
+                        border: "1px solid rgba(96,165,250,0.5)",
+                        background:
+                          "linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.78) 100%)",
+                        color: "white",
+                        fontWeight: 700,
+                        fontSize: "0.95rem",
+                        cursor: "pointer",
+                        boxShadow: "0 8px 18px rgba(37,99,235,0.18)",
+                      }}
+                      type="button"
+                    >
+                      Book
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       </div>
 

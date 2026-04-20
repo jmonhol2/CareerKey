@@ -226,9 +226,9 @@ export default function MatchesPage() {
         }
 
         setLogoMap(nextLogoMap);
-        setPositions((positionsData as any) ?? []);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load matches");
+        setPositions((positionsData as PositionRow[]) ?? []);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load matches");
       } finally {
         setLoading(false);
       }

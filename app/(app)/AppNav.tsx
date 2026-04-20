@@ -32,6 +32,13 @@ export default function AppNav() {
           Schedule
         </Link>
 
+        <Link
+          className={`navlink ${pathname.startsWith("/company") ? "navlinkActive" : ""}`}
+          href="/company"
+        >
+          Company
+        </Link>
+
         <Link className="navlink" href="/admin/positions">
           Admin
         </Link>

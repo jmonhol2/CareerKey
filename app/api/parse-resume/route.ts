@@ -7,6 +7,17 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+type ResumeParsed = {
+  display_name: string | null;
+  major: string | null;
+  class_year: string | null;
+  gpa: number | null;
+  preferred_work_modes: string[];
+  interested_role_types: string[];
+  skills: string[];
+  bio: string | null;
+};
+
 function normalizeWhitespace(text: string) {
   return text
     .replace(/\r/g, "\n")
@@ -162,7 +173,13 @@ async function extractPdfText(arrayBuffer: ArrayBuffer) {
     const textContent = await page.getTextContent();
 
     const pageText = textContent.items
-      .map((item: any) => ("str" in item ? item.str : ""))
+      .map((item) => {
+        if ("str" in item && typeof item.str === "string") {
+          return item.str;
+        }
+
+        return "";
+      })
       .join(" ");
 
     fullText += `\n${pageText}`;
@@ -186,7 +203,7 @@ async function extractResumeText(fileName: string, arrayBuffer: ArrayBuffer) {
   throw new Error("Unsupported file type. Please upload a PDF or DOCX.");
 }
 
-async function aiParseResume(rawText: string) {
+async function aiParseResume(rawText: string): Promise<ResumeParsed> {
   const response = await openai.responses.create({
     model: "gpt-5.4-mini",
     input: [
@@ -255,10 +272,10 @@ async function aiParseResume(rawText: string) {
   });
 
   const text = response.output_text;
-  return JSON.parse(text);
+  return JSON.parse(text) as ResumeParsed;
 }
 
-function mergeParsed(ruleParsed: any, aiParsed: any) {
+function mergeParsed(ruleParsed: ResumeParsed, aiParsed: ResumeParsed): ResumeParsed {
   return {
     display_name: aiParsed.display_name || ruleParsed.display_name || null,
     major: aiParsed.major || ruleParsed.major || null,
@@ -344,9 +361,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ parsed });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { error: error?.message ?? "Unexpected server error" },
+      { error: error instanceof Error ? error.message : "Unexpected server error" },
       { status: 500 }
     );
   }

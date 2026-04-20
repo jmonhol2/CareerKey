@@ -118,9 +118,9 @@ export async function POST(req: Request) {
         chosenPlace: place,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { error: error?.message ?? "Unexpected server error" },
+      { error: error instanceof Error ? error.message : "Unexpected server error" },
       { status: 500 }
     );
   }

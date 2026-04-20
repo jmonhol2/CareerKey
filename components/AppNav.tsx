@@ -64,6 +64,12 @@ export default function AppNav() {
           Schedule
         </Link>
 
+        {role === "company" && (
+          <Link className={navClass("/company")} href="/company">
+            Company
+          </Link>
+        )}
+
         {(role === "admin" || role === "company") && (
           <Link className={navClass("/admin/positions")} href="/admin/positions">
             Admin

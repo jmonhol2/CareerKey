@@ -66,18 +66,19 @@ export default function ConfirmationPage() {
           .single();
 
         if (slotErr) throw slotErr;
-        setSlot(slotData as SlotRow);
+        const slotRow = slotData as SlotRow;
+        setSlot(slotRow);
 
         const { data: companyData, error: compErr } = await supabase
           .from("companies")
           .select("id, company_name")
-          .eq("id", (slotData as any).company_id)
+          .eq("id", slotRow.company_id)
           .single();
 
         if (compErr) throw compErr;
         setCompany(companyData as CompanyRow);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load confirmation details");
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load confirmation details");
       }
     })();
   }, [slotId]);

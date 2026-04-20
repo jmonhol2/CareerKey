@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -19,18 +19,41 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function routeToHome() {
-    router.push("/home");
+  const routeAfterLogin = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      router.push("/");
+      router.refresh();
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (profile?.role === "company") {
+      router.push("/company");
+    } else {
+      router.push("/home");
+    }
+
     router.refresh();
-  }
+  }, [router]);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
       const session = data.session;
-      if (session?.user?.id) router.push("/home");
+      if (session?.user?.id) {
+        await routeAfterLogin();
+      }
     })();
-  }, [router]);
+  }, [routeAfterLogin]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,7 +85,7 @@ export default function AuthPage() {
 
         // If email confirmation is ON, there may be no session yet
         if (data.session?.user?.id) {
-          await routeToHome();
+          await routeAfterLogin();
         } else {
           setMsg(
             "Account created. If email confirmation is enabled, check your inbox, then log in."
@@ -70,16 +93,16 @@ export default function AuthPage() {
           setMode("login");
         }
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
 
-        await routeToHome();
+        await routeAfterLogin();
       }
-    } catch (err: any) {
-      setMsg(err?.message ?? "Something went wrong.");
+    } catch (err: unknown) {
+      setMsg(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setLoading(false);
     }
@@ -158,7 +181,7 @@ export default function AuthPage() {
           </h2>
           <p className="p" style={{ marginTop: 6 }}>
             Choose Student or Company at signup. After login, you’ll be sent to
-            your Home page.
+            your role dashboard.
           </p>
 
           <div className="btnRow" style={{ marginTop: 12 }}>

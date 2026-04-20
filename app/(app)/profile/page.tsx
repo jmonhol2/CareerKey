@@ -29,8 +29,8 @@ type StudentResume = {
   raw_text: string | null;
   parsed_json:
     | {
-        rule_parsed?: any;
-        ai_parsed?: any;
+        rule_parsed?: ResumeParsedFields;
+        ai_parsed?: ResumeParsedFields;
         merged?: {
           display_name?: string | null;
           major?: string | null;
@@ -43,6 +43,17 @@ type StudentResume = {
         };
       }
     | null;
+};
+
+type ResumeParsedFields = {
+  display_name?: string | null;
+  major?: string | null;
+  class_year?: string | null;
+  gpa?: number | null;
+  preferred_work_modes?: string[];
+  interested_role_types?: string[];
+  skills?: string[];
+  bio?: string | null;
 };
 
 function getProfileCompleteness(profile: StudentProfile | null) {
@@ -257,14 +268,14 @@ export default function ProfilePage() {
 
       setResumeMessage("Resume uploaded successfully.");
       setResumeFile(null);
-    } catch (err: any) {
-      setResumeMessage(err?.message ?? "Resume upload failed.");
+    } catch (err: unknown) {
+      setResumeMessage(err instanceof Error ? err.message : "Resume upload failed.");
     } finally {
       setUploadingResume(false);
     }
   }
 
-  function applyParsedToForm(parsed: any) {
+  function applyParsedToForm(parsed: ResumeParsedFields | null | undefined) {
     if (!parsed) return;
 
     if (parsed.display_name) setDisplayName(parsed.display_name);
@@ -327,8 +338,8 @@ export default function ProfilePage() {
       }
 
       setResumeMessage("Resume parsed and applied. Please review before saving.");
-    } catch (err: any) {
-      setResumeMessage(err?.message ?? "Resume autofill failed.");
+    } catch (err: unknown) {
+      setResumeMessage(err instanceof Error ? err.message : "Resume autofill failed.");
     } finally {
       setAutofillLoading(false);
     }

@@ -42,9 +42,12 @@ export default function HomePage() {
         return;
       }
 
-      const meta = (user.user_metadata || {}) as any;
-      const metaRole = (meta.role as Role) || "student";
-      const metaName = (meta.display_name as string | null) ?? null;
+      const meta = (user.user_metadata || {}) as {
+        role?: Role;
+        display_name?: string | null;
+      };
+      const metaRole = meta.role || "student";
+      const metaName = meta.display_name ?? null;
 
       const { error: insErr } = await supabase.from("profiles").insert({
         user_id: user.id,

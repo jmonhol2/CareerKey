@@ -37,8 +37,8 @@ export default function LandingGate() {
 
       setRole(prof.role as Role);
       setDisplayName(prof.display_name ?? null);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to load profile");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load profile");
       setRole(null);
       setDisplayName(null);
     } finally {
@@ -47,14 +47,17 @@ export default function LandingGate() {
   }
 
   useEffect(() => {
-    load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
 
     // Update the UI when auth state changes (login/logout)
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      load();
+      void load();
     });
 
     return () => {
+      clearTimeout(timer);
       sub.subscription.unsubscribe();
     };
   }, []);
@@ -66,6 +69,10 @@ export default function LandingGate() {
 
   if (loading) {
     return <p className="p">Loading…</p>;
+  }
+
+  if (error) {
+    return <p className="p">{error}</p>;
   }
 
   // Not logged in: show Auth UI as the landing page
