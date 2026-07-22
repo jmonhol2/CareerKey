@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -40,6 +40,14 @@ function toIcsUtc(iso: string) {
 }
 
 export default function ConfirmationPage() {
+  return (
+    <Suspense fallback={<main className="container">Loading confirmation...</main>}>
+      <ConfirmationPageContent />
+    </Suspense>
+  );
+}
+
+function ConfirmationPageContent() {
   const params = useSearchParams();
   const appointmentId = params.get("appointmentId");
   const slotId = params.get("slotId");

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
 
@@ -39,6 +40,17 @@ type PositionRow = {
     company_name: string;
   } | null;
 };
+
+type PositionQueryRow = Omit<PositionRow, "companies"> & {
+  companies: PositionRow["companies"] | NonNullable<PositionRow["companies"]>[];
+};
+
+function normalizePosition(row: PositionQueryRow): PositionRow {
+  return {
+    ...row,
+    companies: Array.isArray(row.companies) ? row.companies[0] ?? null : row.companies,
+  };
+}
 
 function normalizeList(values: string[] | null | undefined) {
   return (values ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean);
@@ -226,7 +238,8 @@ export default function MatchesPage() {
         }
 
         setLogoMap(nextLogoMap);
-        setPositions((positionsData as PositionRow[]) ?? []);
+        const positionRows = (positionsData ?? []) as unknown as PositionQueryRow[];
+        setPositions(positionRows.map(normalizePosition));
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to load matches");
       } finally {
@@ -416,9 +429,12 @@ export default function MatchesPage() {
                   >
                     <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                       {getCompanyLogo(p.company_id) ? (
-                        <img
+                        <Image
                           src={getCompanyLogo(p.company_id)!}
                           alt={`${p.companies?.company_name ?? "Company"} logo`}
+                          width={52}
+                          height={52}
+                          unoptimized
                           style={{
                             width: 52,
                             height: 52,

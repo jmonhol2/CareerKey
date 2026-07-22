@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireApiUser } from "@/lib/requireApiUser";
 import OpenAI from "openai";
 import mammoth from "mammoth";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 type ResumeParsed = {
   display_name: string | null;
@@ -204,6 +201,10 @@ async function extractResumeText(fileName: string, arrayBuffer: ArrayBuffer) {
 }
 
 async function aiParseResume(rawText: string): Promise<ResumeParsed> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
+
+  const openai = new OpenAI({ apiKey });
   const response = await openai.responses.create({
     model: "gpt-5.4-mini",
     input: [
@@ -299,6 +300,10 @@ function mergeParsed(ruleParsed: ResumeParsed, aiParsed: ResumeParsed): ResumePa
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireApiUser(req);
+    if (auth.error) return auth.error;
+    const supabaseAdmin = getSupabaseAdmin();
+
     const body = await req.json();
     const resumeId = body.resumeId as string | undefined;
 
@@ -310,6 +315,7 @@ export async function POST(req: Request) {
       .from("student_resumes")
       .select("*")
       .eq("id", resumeId)
+      .eq("user_id", auth.user.id)
       .single();
 
     if (resumeError || !resume) {
@@ -354,7 +360,8 @@ export async function POST(req: Request) {
           merged: parsed,
         },
       })
-      .eq("id", resumeId);
+      .eq("id", resumeId)
+      .eq("user_id", auth.user.id);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });

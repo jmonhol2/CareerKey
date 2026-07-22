@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
 
@@ -145,6 +146,92 @@ function normalizeJoinedSlot(slot: BookedAppointmentRow["slot"]) {
 
 type RenderedCompany = Company & { score: number };
 
+function normalizeList(values: string[] | null | undefined) {
+  return (values ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean);
+}
+
+function computePositionMatch(position: CompanyPosition, profile: StudentProfile | null) {
+  if (!profile) {
+    return {
+      score: 0,
+      reasons: ["Complete your profile to see a match score."],
+    };
+  }
+
+  let score = 0;
+  const reasons: string[] = [];
+  const studentSkills = normalizeList(profile.skills);
+  const positionSkills = normalizeList(position.skills);
+
+  if (positionSkills.length > 0) {
+    const matchedSkills = positionSkills.filter((skill) => studentSkills.includes(skill));
+    score += Math.round((matchedSkills.length / positionSkills.length) * 35);
+
+    if (matchedSkills.length > 0) reasons.push(`matched skills: ${matchedSkills.join(", ")}`);
+  }
+
+  const studentMajor = profile.major?.trim().toLowerCase();
+  const positionMajors = normalizeList(position.majors);
+
+  if (studentMajor && positionMajors.length > 0) {
+    const exactMajorMatch = positionMajors.some((major) => major === studentMajor);
+    const partialMajorMatch = positionMajors.some(
+      (major) => major.includes(studentMajor) || studentMajor.includes(major)
+    );
+
+    if (exactMajorMatch) {
+      score += 25;
+      reasons.push("major aligns strongly");
+    } else if (partialMajorMatch) {
+      score += 15;
+      reasons.push("major partially aligns");
+    }
+  }
+
+  const preferredLocations = normalizeList(profile.preferred_locations);
+  const positionLocation = (
+    position.location_label ||
+    [position.location_city, position.location_state].filter(Boolean).join(", ")
+  )
+    .trim()
+    .toLowerCase();
+
+  if (positionLocation) {
+    const exactLocation = preferredLocations.some((location) =>
+      positionLocation.includes(location)
+    );
+    if (exactLocation) {
+      score += 20;
+      reasons.push("preferred location match");
+    } else if (profile.open_to_relocation) {
+      score += 10;
+      reasons.push("open to relocation");
+    }
+  }
+
+  const preferredWorkModes = normalizeList(profile.preferred_work_modes);
+  const positionWorkMode = position.work_mode?.trim().toLowerCase();
+
+  if (positionWorkMode && preferredWorkModes.includes(positionWorkMode)) {
+    score += 10;
+    reasons.push(`${position.work_mode} work preference match`);
+  }
+
+  const roleTypes = normalizeList(profile.interested_role_types);
+  const titleAndDescription = `${position.title} ${position.description ?? ""}`.toLowerCase();
+  const matchedRoleType = roleTypes.find((roleType) => titleAndDescription.includes(roleType));
+
+  if (matchedRoleType) {
+    score += 10;
+    reasons.push(`${matchedRoleType} interest match`);
+  }
+
+  return {
+    score: Math.min(score, 100),
+    reasons: reasons.length ? reasons : ["Limited profile overlap so far."],
+  };
+}
+
 function getDefaultTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
@@ -156,6 +243,14 @@ function getOrInitTimeZone(): string {
 }
 
 export default function SchedulePage() {
+  return (
+    <Suspense fallback={<main className="container">Loading schedule...</main>}>
+      <SchedulePageContent />
+    </Suspense>
+  );
+}
+
+function SchedulePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const companyIdFromUrl = searchParams.get("companyId");
@@ -173,7 +268,6 @@ export default function SchedulePage() {
   const [filterMode, setFilterMode] = useState<"matches" | "all">("matches");
   const [showMore, setShowMore] = useState(false);
   const [bookedAppointments, setBookedAppointments] = useState<BookedAppointment[]>([]);
-  const [recommendedSlots, setRecommendedSlots] = useState<RecommendedSlot[]>([]);
 
   // Timezone selector (defaults to user's timezone, persisted in localStorage)
   const [timeZone, setTimeZone] = useState<string>(getOrInitTimeZone());
@@ -224,12 +318,6 @@ export default function SchedulePage() {
     if (positions.length === 0) return null;
     return Math.max(...positions.map((p) => computePositionMatch(p, studentProfile).score));
   }, [positions, studentProfile]);
-
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push("/");
-    router.refresh();
-  }
 
   async function loadCompanies() {
     const { data: companies, error } = await supabase
@@ -424,24 +512,6 @@ export default function SchedulePage() {
     setBookedAppointments(normalized);
   }
 
-  async function refreshCompanyProfile(companyId: string) {
-  const res = await fetch("/api/company-insights", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ companyId }),
-  });
-
-  const json = await res.json();
-
-  if (!res.ok) {
-    throw new Error(json.error || "Failed to refresh company profile");
-  }
-
-  setCompanyProfile(json.profile ?? null);
-}
-
   useEffect(() => {
     (async () => {
       try {
@@ -551,94 +621,6 @@ useEffect(() => {
     return gaps;
   }
 
-  function normalizeList(values: string[] | null | undefined) {
-    return (values ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean);
-  }
-
-  function computePositionMatch(position: CompanyPosition, profile: StudentProfile | null) {
-    if (!profile) {
-      return {
-        score: 0,
-        reasons: ["Complete your profile to see a match score."],
-      };
-    }
-
-    let score = 0;
-    const reasons: string[] = [];
-
-    const studentSkills = normalizeList(profile.skills);
-    const positionSkills = normalizeList(position.skills);
-
-    if (positionSkills.length > 0) {
-      const matchedSkills = positionSkills.filter((skill) => studentSkills.includes(skill));
-      const skillScore = Math.round((matchedSkills.length / positionSkills.length) * 35);
-      score += skillScore;
-
-      if (matchedSkills.length > 0) {
-        reasons.push(`matched skills: ${matchedSkills.join(", ")}`);
-      }
-    }
-
-    const studentMajor = profile.major?.trim().toLowerCase();
-    const positionMajors = normalizeList(position.majors);
-
-    if (studentMajor && positionMajors.length > 0) {
-      const exactMajorMatch = positionMajors.some((m) => m === studentMajor);
-      const partialMajorMatch = positionMajors.some(
-        (m) => m.includes(studentMajor) || studentMajor.includes(m)
-      );
-
-      if (exactMajorMatch) {
-        score += 25;
-        reasons.push("major aligns strongly");
-      } else if (partialMajorMatch) {
-        score += 15;
-        reasons.push("major partially aligns");
-      }
-    }
-
-    const preferredLocations = normalizeList(profile.preferred_locations);
-    const positionLocation = (
-      position.location_label ||
-      [position.location_city, position.location_state].filter(Boolean).join(", ")
-    )
-      .trim()
-      .toLowerCase();
-
-    if (positionLocation) {
-      const exactLocation = preferredLocations.some((loc) => positionLocation.includes(loc));
-      if (exactLocation) {
-        score += 20;
-        reasons.push("preferred location match");
-      } else if (profile.open_to_relocation) {
-        score += 10;
-        reasons.push("open to relocation");
-      }
-    }
-
-    const preferredWorkModes = normalizeList(profile.preferred_work_modes);
-    const positionWorkMode = position.work_mode?.trim().toLowerCase();
-
-    if (positionWorkMode && preferredWorkModes.includes(positionWorkMode)) {
-      score += 10;
-      reasons.push(`${position.work_mode} work preference match`);
-    }
-
-    const roleTypes = normalizeList(profile.interested_role_types);
-    const titleAndDescription = `${position.title} ${position.description ?? ""}`.toLowerCase();
-
-    const matchedRoleType = roleTypes.find((roleType) => titleAndDescription.includes(roleType));
-    if (matchedRoleType) {
-      score += 10;
-      reasons.push(`${matchedRoleType} interest match`);
-    }
-
-    return {
-      score: Math.min(score, 100),
-      reasons: reasons.length ? reasons : ["Limited profile overlap so far."],
-    };
-  }
-
   const renderedCompanies = useMemo<RenderedCompany[]>(() => {
     const matchedCompanies = companies
       .map((company) => ({
@@ -659,17 +641,15 @@ useEffect(() => {
       );
   }, [slots, selectedCompany]);
 
-  useEffect(() => {
+  const recommendedSlots = useMemo<RecommendedSlot[]>(() => {
     if (!companies.length || !bookedAppointments.length) {
-      setRecommendedSlots([]);
-      return;
+      return [];
     }
 
     const gaps = getGapRanges(bookedAppointments);
 
     if (!gaps.length) {
-      setRecommendedSlots([]);
-      return;
+      return [];
     }
 
     const alreadyBookedSlotIds = new Set(bookedAppointments.map((appt) => appt.slotId));
@@ -699,7 +679,7 @@ useEffect(() => {
       });
     };
 
-    const recommended = allAvailableSlots
+    return allAvailableSlots
       .filter((slot) => !alreadyBookedSlotIds.has(slot.id))
       .filter((slot) => fitsGap(slot))
       .sort((a, b) => {
@@ -708,8 +688,6 @@ useEffect(() => {
 
         return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
       });
-
-    setRecommendedSlots(recommended);
   }, [companies, bookedAppointments, companyMatchScores]);
 
   const allTimes = bookedAppointments.flatMap((appt) => [
@@ -842,7 +820,7 @@ useEffect(() => {
                 })}
                 {renderedCompanies.length === 0 && (
                   <p className="p" style={{ margin: 0 }}>
-                    No matching companies found. Switch to "Show All Listings".
+                    No matching companies found. Switch to &quot;Show All Listings&quot;.
                   </p>
                 )}
               </div>
@@ -873,9 +851,12 @@ useEffect(() => {
                   >
                     <div style={{ flex: 1 }}>
                       {companyProfile.logo_url && (
-                        <img
+                        <Image
                           src={companyProfile.logo_url}
                           alt={`${selectedCompany?.company_name} logo`}
+                          width={56}
+                          height={56}
+                          unoptimized
                           style={{
                             width: 56,
                             height: 56,

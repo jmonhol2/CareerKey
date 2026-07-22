@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CareerKey",
-  description: "CareerKey prototype",
+  description: "Build better career connections with CareerKey.",
 };
 
 export default function RootLayout({
