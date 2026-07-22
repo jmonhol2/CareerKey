@@ -326,7 +326,7 @@ function MatchesPageContent() {
               style={{
                 height: 10,
                 borderRadius: 999,
-                background: "rgba(255,255,255,0.08)",
+                background: "#e5efea",
                 overflow: "hidden",
                 marginBottom: 10,
               }}
@@ -335,7 +335,7 @@ function MatchesPageContent() {
                 style={{
                   width: `${profileCompleteness.percent}%`,
                   height: "100%",
-                  background: "rgba(87, 112, 255, 0.85)",
+                  background: "linear-gradient(90deg, var(--primary), #63ad9e)",
                 }}
               />
             </div>
@@ -465,7 +465,7 @@ function MatchesPageContent() {
                             alignItems: "center",
                             justifyContent: "center",
                             fontWeight: 900,
-                            background: "rgba(255,255,255,0.03)",
+                            background: "var(--surface-soft)",
                             flexShrink: 0,
                           }}
                         >
@@ -486,7 +486,8 @@ function MatchesPageContent() {
                         padding: "8px 12px",
                         borderRadius: 999,
                         border: "1px solid var(--border)",
-                        background: "rgba(87, 112, 255, 0.12)",
+                        color: "var(--primary)",
+                        background: "var(--primary-soft)",
                         fontWeight: 900,
                         whiteSpace: "nowrap",
                       }}
@@ -537,6 +538,6 @@ const fieldStyle: React.CSSProperties = {
   padding: 10,
   borderRadius: 12,
   border: "1px solid var(--border)",
-  background: "transparent",
-  color: "inherit",
+  background: "#fbfdfc",
+  color: "var(--text)",
 };

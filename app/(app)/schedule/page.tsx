@@ -6,6 +6,7 @@ import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
 import RequirePermission from "@/components/RequirePermission";
+import { formatEventDateTime, type RecruitingEvent } from "@/lib/events";
 
 type Company = {
   id: string;
@@ -15,6 +16,7 @@ type Company = {
 
 type CompanyTimeSlot = {
   id: string;
+  event_id: string | null;
   company_id: string;
   start_time: string;
   end_time: string;
@@ -23,6 +25,7 @@ type CompanyTimeSlot = {
 
 type Slot = {
   id: string;
+  event_id: string | null;
   company_id: string;
   start_time: string;
   end_time: string;
@@ -86,6 +89,23 @@ type BookedAppointment = {
   companyName: string;
   startTime: string;
   endTime: string;
+  personnelName: string;
+  personnelRole: string;
+};
+
+type PersonnelOption = {
+  id: string;
+  name: string;
+  roleTitle: string;
+  bio: string | null;
+};
+
+type PersonnelAvailabilityRow = {
+  slot_id: string;
+  personnel_id: string;
+  personnel_name: string;
+  role_title: string;
+  bio: string | null;
 };
 
 type RecommendedSlot = {
@@ -104,6 +124,7 @@ type GapRange = {
 
 type AppointmentSlotJoin = {
   id: string;
+  event_id: string | null;
   company_id: string;
   start_time: string;
   end_time: string;
@@ -123,6 +144,10 @@ type BookedAppointmentRow = {
   id: string;
   status: string;
   slot: AppointmentSlotJoin | AppointmentSlotJoin[] | null;
+  personnel:
+    | { name: string; role_title: string }
+    | { name: string; role_title: string }[]
+    | null;
 };
 
 type CompanyJoin = {
@@ -259,6 +284,7 @@ function SchedulePageContent() {
   const companyIdFromUrl = searchParams.get("companyId");
 
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [activeEvent, setActiveEvent] = useState<RecruitingEvent | null>(null);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [positions, setPositions] = useState<CompanyPosition[]>([]);
@@ -271,6 +297,8 @@ function SchedulePageContent() {
   const [filterMode, setFilterMode] = useState<"matches" | "all">("matches");
   const [showMore, setShowMore] = useState(false);
   const [bookedAppointments, setBookedAppointments] = useState<BookedAppointment[]>([]);
+  const [personnelBySlot, setPersonnelBySlot] = useState<Record<string, PersonnelOption[]>>({});
+  const [selectedPersonnelBySlot, setSelectedPersonnelBySlot] = useState<Record<string, string>>({});
 
   // Timezone selector (defaults to user's timezone, persisted in localStorage)
   const [timeZone, setTimeZone] = useState<string>(getOrInitTimeZone());
@@ -322,14 +350,29 @@ function SchedulePageContent() {
     return Math.max(...positions.map((p) => computePositionMatch(p, studentProfile).score));
   }, [positions, studentProfile]);
 
-  async function loadCompanies() {
-    const { data: companies, error } = await supabase
+  async function loadActiveEvent() {
+    const { data, error } = await supabase
+      .from("recruiting_events")
+      .select("id, name, start_time, end_time, slot_duration_minutes, timezone, is_active")
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    const event = data ? (data as RecruitingEvent) : null;
+    setActiveEvent(event);
+    return event;
+  }
+
+  async function loadCompanies(eventId: string | null) {
+    let query = supabase
       .from("companies")
       .select(`
         id,
         company_name,
         time_slots (
           id,
+          event_id,
           company_id,
           start_time,
           end_time,
@@ -338,21 +381,31 @@ function SchedulePageContent() {
       `)
       .order("company_name", { ascending: true });
 
+    if (eventId) query = query.eq("time_slots.event_id", eventId);
+
+    const { data: companyRows, error } = await query;
+
     if (error) throw error;
 
-    setCompanies(companies ?? []);
-    if (companyIdFromUrl && companies?.some((c) => c.id === companyIdFromUrl)) {
+    const companies = ((companyRows ?? []) as Company[]).map((company) => ({
+      ...company,
+      time_slots: eventId ? company.time_slots ?? [] : [],
+    }));
+
+    setCompanies(companies);
+    if (companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl)) {
       setSelectedCompanyId(companyIdFromUrl);
-    } else if (!selectedCompanyId && companies?.length) {
+    } else if (!selectedCompanyId && companies.length) {
       setSelectedCompanyId(companies[0].id);
     }
   }
 
-  async function loadSlots(companyId: string) {
+  async function loadSlots(companyId: string, eventId: string) {
     const { data: slotRows, error: slotErr } = await supabase
       .from("time_slots")
-      .select("id, company_id, start_time, end_time, capacity")
+      .select("id, event_id, company_id, start_time, end_time, capacity")
       .eq("company_id", companyId)
+      .eq("event_id", eventId)
       .order("start_time");
 
     if (slotErr) throw slotErr;
@@ -379,7 +432,27 @@ function SchedulePageContent() {
       booked: bookedMap.get(s.id) ?? 0,
     }));
 
+    const { data: availabilityRows, error: availabilityError } = await supabase.rpc(
+      "get_company_event_personnel_availability",
+      { requested_company_id: companyId, requested_event_id: eventId }
+    );
+
+    if (availabilityError) throw availabilityError;
+
+    const availability: Record<string, PersonnelOption[]> = {};
+    for (const row of (availabilityRows ?? []) as PersonnelAvailabilityRow[]) {
+      const slotPersonnel = availability[row.slot_id] ?? [];
+      slotPersonnel.push({
+        id: row.personnel_id,
+        name: row.personnel_name,
+        roleTitle: row.role_title,
+        bio: row.bio,
+      });
+      availability[row.slot_id] = slotPersonnel;
+    }
+
     setSlots(merged);
+    setPersonnelBySlot(availability);
   }
 
   async function loadCompanyProfile(companyId: string) {
@@ -455,7 +528,7 @@ function SchedulePageContent() {
     setCompanyMatchScores(scores);
   }
 
-  async function loadBookedAppointments() {
+  async function loadBookedAppointments(eventId: string | null) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -470,8 +543,13 @@ function SchedulePageContent() {
       .select(`
         id,
         status,
+        personnel:company_personnel (
+          name,
+          role_title
+        ),
         slot:time_slots (
           id,
+          event_id,
           company_id,
           start_time,
           end_time,
@@ -492,21 +570,25 @@ function SchedulePageContent() {
 
     const rows = (data as unknown as BookedAppointmentRow[] | null) ?? [];
 
-    const normalized =
-      rows
-        .map((appt) => {
+    const normalized = rows
+        .flatMap((appt) => {
           const slot = normalizeJoinedSlot(appt.slot);
+          if (!eventId || !slot || slot.event_id !== eventId) return [];
+          const personnel = Array.isArray(appt.personnel)
+            ? appt.personnel[0]
+            : appt.personnel;
 
-          return {
+          return [{
             id: appt.id,
-            slotId: slot?.id ?? "",
-            companyId: slot?.company_id ?? "",
-            companyName: slot?.company?.company_name ?? "Unknown Company",
-            startTime: slot?.start_time ?? "",
-            endTime: slot?.end_time ?? "",
-          };
+            slotId: slot.id,
+            companyId: slot.company_id,
+            companyName: slot.company?.company_name ?? "Unknown Company",
+            startTime: slot.start_time,
+            endTime: slot.end_time,
+            personnelName: personnel?.name ?? "Personnel not assigned",
+            personnelRole: personnel?.role_title ?? "",
+          }];
         })
-        .filter((appt) => appt.slotId && appt.startTime && appt.endTime)
         .sort(
           (a, b) =>
             new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
@@ -520,7 +602,11 @@ function SchedulePageContent() {
       try {
         setLoading(true);
         setError(null);
-        await Promise.all([loadCompanies(), loadBookedAppointments()]);
+        const event = await loadActiveEvent();
+        await Promise.all([
+          loadCompanies(event?.id ?? null),
+          loadBookedAppointments(event?.id ?? null),
+        ]);
         const profile = await loadStudentProfile();
         await loadCompanyMatchScores(profile);
       } catch (e: unknown) {
@@ -533,7 +619,9 @@ function SchedulePageContent() {
   }, []);
 
 useEffect(() => {
-  if (!selectedCompanyId) return;
+  if (!selectedCompanyId || !activeEvent) {
+    return;
+  }
 
   (async () => {
     try {
@@ -541,7 +629,7 @@ useEffect(() => {
       setShowMore(false);
 
       await Promise.all([
-         loadSlots(selectedCompanyId),
+         loadSlots(selectedCompanyId, activeEvent.id),
          loadCompanyProfile(selectedCompanyId),
          loadPositions(selectedCompanyId),
       ]);
@@ -549,15 +637,16 @@ useEffect(() => {
       setError(e instanceof Error ? e.message : "Failed to load company data");
     }
   })();
-}, [selectedCompanyId]);
+}, [activeEvent, selectedCompanyId]);
 
-  async function bookSlot(slotId: string) {
+  async function bookSlot(slotId: string, personnelId: string) {
     try {
       setBookingId(slotId);
       setError(null);
 
-      const { data, error } = await supabase.rpc("book_slot", {
+      const { data, error } = await supabase.rpc("book_personnel_slot", {
         p_slot_id: slotId,
+        p_personnel_id: personnelId,
       });
 
       if (error) {
@@ -565,8 +654,15 @@ useEffect(() => {
         return;
       }
 
-      if (selectedCompanyId) await loadSlots(selectedCompanyId);
-      await loadBookedAppointments();
+      if (selectedCompanyId && activeEvent) {
+        await loadSlots(selectedCompanyId, activeEvent.id);
+      }
+      await loadBookedAppointments(activeEvent?.id ?? null);
+      setSelectedPersonnelBySlot((current) => {
+        const next = { ...current };
+        delete next[slotId];
+        return next;
+      });
       setError(null);
 
       router.push(
@@ -693,14 +789,17 @@ useEffect(() => {
       });
   }, [companies, bookedAppointments, companyMatchScores]);
 
+  const eventTimes = activeEvent
+    ? [toMinutes(activeEvent.start_time), toMinutes(activeEvent.end_time)]
+    : [];
   const allTimes = bookedAppointments.flatMap((appt) => [
     toMinutes(appt.startTime),
     toMinutes(appt.endTime),
-  ]);
+  ]).concat(eventTimes);
 
   const earliest = allTimes.length ? Math.min(...allTimes) : 9 * 60;
   const latest = allTimes.length ? Math.max(...allTimes) : 17 * 60;
-  const TIMELINE_PADDING_MINUTES = 60;
+  const TIMELINE_PADDING_MINUTES = activeEvent ? 0 : 60;
   const PIXELS_PER_30_MIN = 84;
   const PIXELS_PER_MINUTE = PIXELS_PER_30_MIN / 30;
 
@@ -744,6 +843,22 @@ useEffect(() => {
           <p className="p" style={{ marginBottom: 12 }}>
             Select a company, then book an available time slot.
           </p>
+
+          {activeEvent ? (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="kicker">{activeEvent.name}</div>
+              <p className="p" style={{ marginTop: 6 }}>
+                {formatEventDateTime(activeEvent.start_time, activeEvent.timezone)} – {formatEventDateTime(activeEvent.end_time, activeEvent.timezone)} · {activeEvent.slot_duration_minutes}-minute appointments
+              </p>
+            </div>
+          ) : !loading ? (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <strong>Scheduling is not open yet.</strong>
+              <p className="p" style={{ marginTop: 6 }}>
+                An administrator has not published an active event schedule.
+              </p>
+            </div>
+          ) : null}
 
           <div style={{ marginBottom: 12 }}>
             <label className="p" style={{ fontSize: 14, marginRight: 8 }}>
@@ -804,10 +919,10 @@ useEffect(() => {
                       style={{
                         justifyContent: "flex-start",
                         background: active
-                          ? "rgba(87, 112, 255, 0.12)"
-                          : "rgba(255,255,255,0.03)",
+                          ? "var(--primary-soft)"
+                          : "var(--surface)",
                         borderColor: active
-                          ? "rgba(87, 112, 255, 0.45)"
+                          ? "#9ec7bb"
                           : "var(--border)",
                       }}
                       type="button"
@@ -841,7 +956,7 @@ useEffect(() => {
                     padding: 14,
                     borderRadius: 16,
                     border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.03)",
+                    background: "var(--surface-soft)",
                   }}
                 >
                   <div
@@ -903,7 +1018,7 @@ useEffect(() => {
                         padding: 10,
                         borderRadius: 12,
                         border: "1px solid var(--border)",
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--surface-soft)",
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -919,7 +1034,7 @@ useEffect(() => {
                         padding: 10,
                         borderRadius: 12,
                         border: "1px solid var(--border)",
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--surface-soft)",
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -933,7 +1048,7 @@ useEffect(() => {
                         padding: 10,
                         borderRadius: 12,
                         border: "1px solid var(--border)",
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--surface-soft)",
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -947,7 +1062,7 @@ useEffect(() => {
                         padding: 10,
                         borderRadius: 12,
                         border: "1px solid var(--border)",
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--surface-soft)",
                       }}
                     >
                       <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -963,7 +1078,7 @@ useEffect(() => {
                         padding: 10,
                         borderRadius: 12,
                         border: "1px solid var(--border)",
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--surface-soft)",
                         gridColumn: "1 / -1",
                       }}
                     >
@@ -984,7 +1099,7 @@ useEffect(() => {
                         padding: 10,
                         borderRadius: 12,
                         border: "1px solid var(--border)",
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--surface-soft)",
                         gridColumn: "1 / -1",
                       }}
                     >
@@ -1010,16 +1125,21 @@ useEffect(() => {
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {companySlots.map((s) => {
-                    const full = s.booked >= s.capacity;
+                    const personnelOptions = personnelBySlot[s.id] ?? [];
+                    const selectedPersonnelId = selectedPersonnelBySlot[s.id] ?? "";
+                    const selectedPersonnel = personnelOptions.find(
+                      (personnel) => personnel.id === selectedPersonnelId
+                    );
+                    const full = personnelOptions.length === 0;
                     return (
                       <div
                         key={s.id}
                         className="card"
                         style={{
                           padding: 14,
-                          display: "flex",
+                          display: "grid",
+                          gridTemplateColumns: "minmax(0, 1fr) auto",
                           alignItems: "center",
-                          justifyContent: "space-between",
                           gap: 12,
                         }}
                       >
@@ -1028,18 +1148,48 @@ useEffect(() => {
                             {fmt(s.start_time)} → {fmt(s.end_time)}
                           </div>
                           <div className="p" style={{ fontSize: 13 }}>
-                            Capacity: {s.booked}/{s.capacity}{" "}
-                            {full ? "(Full)" : ""}
+                            {personnelOptions.length} personnel currently available
                           </div>
+                          <label style={{ display: "grid", gap: 5, marginTop: 10 }}>
+                            Choose who to meet
+                            <select
+                              value={selectedPersonnelId}
+                              onChange={(event) =>
+                                setSelectedPersonnelBySlot((current) => ({
+                                  ...current,
+                                  [s.id]: event.target.value,
+                                }))
+                              }
+                              disabled={full}
+                            >
+                              <option value="">
+                                {full ? "No personnel available" : "Select personnel"}
+                              </option>
+                              {personnelOptions.map((personnel) => (
+                                <option value={personnel.id} key={personnel.id}>
+                                  {personnel.name} — {personnel.roleTitle}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {selectedPersonnel && (
+                            <div className="personnelChoiceSummary">
+                              <strong>{selectedPersonnel.name}</strong>
+                              <span>{selectedPersonnel.roleTitle}</span>
+                              <p>
+                                {selectedPersonnel.bio || "No additional description provided."}
+                              </p>
+                            </div>
+                          )}
                         </div>
 
                         <button
-                          disabled={full || bookingId === s.id}
-                          onClick={() => bookSlot(s.id)}
+                          disabled={full || !selectedPersonnelId || bookingId === s.id}
+                          onClick={() => bookSlot(s.id, selectedPersonnelId)}
                           className={`btn ${!full ? "btnPrimary" : ""}`}
                           style={{
                             opacity: bookingId === s.id ? 0.7 : 1,
-                            cursor: full ? "not-allowed" : "pointer",
+                            cursor: full || !selectedPersonnelId ? "not-allowed" : "pointer",
                           }}
                           type="button"
                         >
@@ -1047,7 +1197,9 @@ useEffect(() => {
                             ? "Booking…"
                             : full
                             ? "Unavailable"
-                            : "Book"}
+                            : selectedPersonnelId
+                              ? "Book meeting"
+                              : "Choose personnel"}
                         </button>
                       </div>
                     );
@@ -1061,13 +1213,12 @@ useEffect(() => {
             style={{
               marginTop: "32px",
               padding: "24px",
-              border: "1px solid rgba(255,255,255,0.12)",
+              border: "1px solid var(--border)",
               borderRadius: "24px",
-              background:
-                "linear-gradient(135deg, rgba(17,24,39,0.88) 0%, rgba(8,15,30,0.92) 100%)",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+              background: "var(--surface)",
+              boxShadow: "var(--shadow-soft)",
               backdropFilter: "blur(10px)",
-              color: "white",
+              color: "var(--text)",
             }}
           >
             <h2 style={{ marginBottom: "18px", fontSize: "2rem", fontWeight: 800 }}>
@@ -1075,7 +1226,7 @@ useEffect(() => {
             </h2>
 
             {bookedAppointments.length === 0 ? (
-              <p style={{ color: "rgba(255,255,255,0.72)" }}>No booked appointments yet.</p>
+              <p className="p">No booked appointments yet.</p>
             ) : (
               <div
                 style={{
@@ -1106,7 +1257,7 @@ useEffect(() => {
                           top: `${minuteToY(minute)}px`,
                           transform: "translateY(-50%)",
                           fontSize: "15px",
-                          color: "rgba(255,255,255,0.72)",
+                          color: "var(--muted)",
                           fontWeight: 500,
                         }}
                       >
@@ -1127,10 +1278,9 @@ useEffect(() => {
                     style={{
                       position: "relative",
                       height: `${TIMELINE_HEIGHT}px`,
-                      border: "1px solid rgba(255,255,255,0.08)",
+                      border: "1px solid var(--border)",
                       borderRadius: "20px",
-                      background:
-                        "linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.03) 100%)",
+                      background: "var(--surface-soft)",
                       overflow: "hidden",
                     }}
                   >
@@ -1142,7 +1292,7 @@ useEffect(() => {
                           left: 0,
                           right: 0,
                           top: `${minuteToY(minute)}px`,
-                          borderTop: "1px solid rgba(255,255,255,0.07)",
+                          borderTop: "1px solid var(--border)",
                         }}
                       />
                     ))}
@@ -1164,9 +1314,10 @@ useEffect(() => {
                             top: `${top}px`,
                             height: `${height}px`,
                             borderRadius: "16px",
-                            background: "rgba(34, 197, 94, 0.08)",
-                            border: "1px dashed rgba(74, 222, 128, 0.25)",
+                            background: "rgba(225, 132, 77, 0.16)",
+                            border: "1px dashed rgba(201, 107, 55, 0.58)",
                           }}
+                          aria-label="Available time"
                         />
                       );
                     })}
@@ -1199,40 +1350,50 @@ useEffect(() => {
                             zIndex: index + 1,
                             borderRadius: "18px",
                             background:
-                              "linear-gradient(135deg, rgba(59,130,246,0.35) 0%, rgba(96,165,250,0.22) 100%)",
-                            border: "1px solid rgba(96,165,250,0.45)",
-                            padding: "12px 16px",
+                              "linear-gradient(135deg, #f3b07a 0%, #e1844d 100%)",
+                            border: "1px solid #c96b37",
+                            padding: "7px 18px",
                             boxSizing: "border-box",
                             overflow: "hidden",
-                            boxShadow: "0 8px 20px rgba(37, 99, 235, 0.12)",
-                            color: "white",
+                            boxShadow: "0 8px 20px rgba(201, 107, 55, 0.24)",
+                            color: "var(--text)",
                           }}
                         >
                         <div
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto 1fr",
                             alignItems: "center",
                             gap: "12px",
                             width: "100%",
+                            height: "100%",
                           }}
                         >
                           <div
                             style={{
+                              gridColumn: 2,
                               fontWeight: 800,
                               fontSize: "1.1rem",
+                              textAlign: "center",
                               whiteSpace: "nowrap",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
+                              maxWidth: "min(360px, 42vw)",
                             }}
                           >
-                            {appt.companyName}
+                            <div>{appt.companyName}</div>
+                            <div style={{ fontSize: "0.72rem", fontWeight: 650 }}>
+                              {appt.personnelName}
+                              {appt.personnelRole ? ` · ${appt.personnelRole}` : ""}
+                            </div>
                           </div>
 
                           <div
                             style={{
+                              gridColumn: 3,
+                              justifySelf: "end",
                               fontSize: "0.92rem",
-                              color: "rgba(255,255,255,0.78)",
+                              color: "rgba(23, 50, 77, 0.78)",
                               fontWeight: 600,
                               whiteSpace: "nowrap",
                               flexShrink: 0,
@@ -1254,13 +1415,12 @@ useEffect(() => {
             style={{
               marginTop: "28px",
               padding: "24px",
-              border: "1px solid rgba(255,255,255,0.12)",
+              border: "1px solid var(--border)",
               borderRadius: "24px",
-              background:
-                "linear-gradient(135deg, rgba(17,24,39,0.88) 0%, rgba(8,15,30,0.92) 100%)",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+              background: "var(--surface)",
+              boxShadow: "var(--shadow-soft)",
               backdropFilter: "blur(10px)",
-              color: "white",
+              color: "var(--text)",
             }}
           >
             <h2 style={{ marginBottom: "18px", fontSize: "2rem", fontWeight: 800 }}>
@@ -1268,7 +1428,7 @@ useEffect(() => {
             </h2>
 
             {recommendedSlots.length === 0 ? (
-              <p style={{ color: "rgba(255,255,255,0.72)" }}>No recommendations yet.</p>
+              <p className="p">No recommendations yet.</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 {recommendedSlots.map((slot, index) => (
@@ -1279,12 +1439,12 @@ useEffect(() => {
                       borderRadius: "20px",
                       background:
                         index === 0
-                          ? "linear-gradient(135deg, rgba(34,197,94,0.18) 0%, rgba(16,185,129,0.10) 100%)"
-                          : "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.03) 100%)",
+                          ? "linear-gradient(135deg, #edf8f3 0%, #f7fbf9 100%)"
+                          : "var(--surface-soft)",
                       border:
                         index === 0
-                          ? "1px solid rgba(74,222,128,0.35)"
-                          : "1px solid rgba(255,255,255,0.08)",
+                          ? "1px solid #acd2c6"
+                          : "1px solid var(--border)",
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
@@ -1302,9 +1462,9 @@ useEffect(() => {
                               fontWeight: 700,
                               padding: "4px 8px",
                               borderRadius: "999px",
-                              background: "rgba(74,222,128,0.18)",
-                              border: "1px solid rgba(74,222,128,0.3)",
-                              color: "#86efac",
+                              background: "var(--primary-soft)",
+                              border: "1px solid #b7d9cf",
+                              color: "var(--primary)",
                             }}
                           >
                             Best Fit
@@ -1315,7 +1475,7 @@ useEffect(() => {
                       <div
                         style={{
                           marginTop: "4px",
-                          color: "rgba(255,255,255,0.78)",
+                          color: "var(--muted)",
                           fontSize: "0.95rem",
                         }}
                       >
@@ -1327,7 +1487,7 @@ useEffect(() => {
                           marginTop: "6px",
                           fontSize: "0.95rem",
                           color:
-                            (slot.matchScore ?? 0) > 0 ? "#93c5fd" : "rgba(255,255,255,0.68)",
+                            (slot.matchScore ?? 0) > 0 ? "var(--primary)" : "var(--muted)",
                         }}
                       >
                         Match: {slot.matchScore ?? 0}%
@@ -1335,22 +1495,21 @@ useEffect(() => {
                     </div>
 
                     <button
-                      onClick={() => bookSlot(slot.id)}
+                      onClick={() => setSelectedCompanyId(slot.companyId)}
                       style={{
                         padding: "12px 18px",
                         borderRadius: "16px",
-                        border: "1px solid rgba(96,165,250,0.5)",
-                        background:
-                          "linear-gradient(135deg, rgba(37,99,235,0.9) 0%, rgba(59,130,246,0.78) 100%)",
+                        border: "1px solid var(--primary)",
+                        background: "var(--primary)",
                         color: "white",
                         fontWeight: 700,
                         fontSize: "0.95rem",
                         cursor: "pointer",
-                        boxShadow: "0 8px 18px rgba(37,99,235,0.18)",
+                        boxShadow: "0 8px 18px rgba(37,107,98,0.2)",
                       }}
                       type="button"
                     >
-                      Book
+                      Choose personnel
                     </button>
                   </div>
                 ))}
@@ -1382,7 +1541,7 @@ useEffect(() => {
               maxHeight: "85vh",
               overflowY: "auto",
               padding: 18,
-              background: "rgba(12, 16, 28, 0.94)",
+              background: "var(--surface)",
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45)",
             }}
           >
@@ -1415,7 +1574,7 @@ useEffect(() => {
                   padding: 12,
                   borderRadius: 12,
                   border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.02)",
+                  background: "var(--surface-soft)",
                 }}
               >
                 <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1434,7 +1593,7 @@ useEffect(() => {
                     padding: 12,
                     borderRadius: 12,
                     border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.02)",
+                    background: "var(--surface-soft)",
                   }}
                 >
                   <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1450,7 +1609,7 @@ useEffect(() => {
                     padding: 12,
                     borderRadius: 12,
                     border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.02)",
+                    background: "var(--surface-soft)",
                   }}
                 >
                   <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1466,7 +1625,7 @@ useEffect(() => {
                     padding: 12,
                     borderRadius: 12,
                     border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.02)",
+                    background: "var(--surface-soft)",
                   }}
                 >
                   <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1484,7 +1643,7 @@ useEffect(() => {
                     padding: 12,
                     borderRadius: 12,
                     border: "1px solid var(--border)",
-                    background: "rgba(255,255,255,0.02)",
+                    background: "var(--surface-soft)",
                   }}
                 >
                   <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1510,7 +1669,7 @@ useEffect(() => {
                   padding: 12,
                   borderRadius: 12,
                   border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.02)",
+                  background: "var(--surface-soft)",
                 }}
               >
                 <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1526,7 +1685,7 @@ useEffect(() => {
                   padding: 12,
                   borderRadius: 12,
                   border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.02)",
+                  background: "var(--surface-soft)",
                 }}
               >
                 <div className="p" style={{ fontSize: 12, opacity: 0.8 }}>
@@ -1564,7 +1723,8 @@ useEffect(() => {
                                 padding: "6px 10px",
                                 borderRadius: 999,
                                 border: "1px solid var(--border)",
-                                background: "rgba(87, 112, 255, 0.12)",
+                                color: "var(--primary)",
+                                background: "var(--primary-soft)",
                                 fontWeight: 800,
                                 whiteSpace: "nowrap",
                               }}
@@ -1618,6 +1778,6 @@ const fieldStyle: React.CSSProperties = {
   padding: 10,
   borderRadius: 12,
   border: "1px solid var(--border)",
-  background: "transparent",
-  color: "inherit",
+  background: "#fbfdfc",
+  color: "var(--text)",
 };

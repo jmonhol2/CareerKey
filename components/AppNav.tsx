@@ -17,12 +17,19 @@ export default function AppNav() {
   }
 
   function navClass(href: string) {
-    return pathname === href ? "navlink navlinkActive" : "navlink";
+    const active = href === "/home" ? pathname === href : pathname.startsWith(href);
+    return active ? "navlink navlinkActive" : "navlink";
   }
 
   return (
     <div className="nav">
-      <div className="brand">CareerKey</div>
+      <div className="brand">
+        <span className="appBrandMark" aria-hidden="true">
+          <span className="appKeyRing" />
+          <span className="appKeyStem" />
+        </span>
+        <span>CareerKey</span>
+      </div>
 
       <div className="navlinks">
         <Link className={navClass("/home")} href="/home">

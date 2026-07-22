@@ -429,7 +429,7 @@ function ProfilePageContent() {
               style={{
                 height: 10,
                 borderRadius: 999,
-                background: "rgba(255,255,255,0.08)",
+                background: "#e5efea",
                 overflow: "hidden",
                 marginBottom: 10,
               }}
@@ -438,7 +438,7 @@ function ProfilePageContent() {
                 style={{
                   width: `${profileCompleteness.percent}%`,
                   height: "100%",
-                  background: "rgba(87, 112, 255, 0.85)",
+                  background: "linear-gradient(90deg, var(--primary), #63ad9e)",
                 }}
               />
             </div>
@@ -593,6 +593,6 @@ const fieldStyle: React.CSSProperties = {
   padding: 10,
   borderRadius: 12,
   border: "1px solid var(--border)",
-  background: "transparent",
-  color: "inherit",
+  background: "#fbfdfc",
+  color: "var(--text)",
 };

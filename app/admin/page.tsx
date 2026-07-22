@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import AppNav from "@/components/AppNav";
+import EventSettingsForm from "@/components/admin/EventSettingsForm";
 import { supabase } from "@/lib/supabaseClient";
 
 type Company = {
@@ -32,11 +33,11 @@ export default function AdminDashboardPage() {
   }, []);
 
   return (
-    <main style={pageStyle}>
-      <section className="card" style={shellStyle}>
+    <main className="container">
+      <section className="shell">
         <AppNav />
 
-        <div style={{ padding: 22 }}>
+        <div className="main">
           <div className="kicker">ADMINISTRATION</div>
           <h1 className="h1" style={{ fontSize: 36, marginTop: 8 }}>
             CareerKey Admin
@@ -52,6 +53,8 @@ export default function AdminDashboardPage() {
               Manage all positions
             </Link>
           </div>
+
+          <EventSettingsForm />
 
           <h2 style={{ margin: "30px 0 6px" }}>Company workspaces</h2>
           <p className="p">Choose a company to inspect and manage its portal.</p>
@@ -85,15 +88,3 @@ export default function AdminDashboardPage() {
     </main>
   );
 }
-
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  padding: 24,
-};
-
-const shellStyle: React.CSSProperties = {
-  width: "min(1080px, 100%)",
-  margin: "0 auto",
-  padding: 0,
-  overflow: "hidden",
-};

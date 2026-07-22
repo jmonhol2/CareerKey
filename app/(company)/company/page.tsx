@@ -68,8 +68,9 @@ export default function CompanyDashboardPage() {
 
   return (
     <div>
+      <div className="kicker">COMPANY OVERVIEW</div>
       <h1>Company Dashboard</h1>
-      <p>Welcome{companyName ? `, ${companyName}` : ""}.</p>
+      <p className="p">Welcome{companyName ? `, ${companyName}` : ""}. Here is your recruiting activity at a glance.</p>
       <DashboardCards
         totalSlots={stats.totalSlots}
         bookedAppointments={stats.bookedAppointments}

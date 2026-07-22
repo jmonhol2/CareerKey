@@ -11,16 +11,19 @@ type AppointmentRow = {
   created_at: string;
   slot_id: string;
   student_id: string;
+  personnel_id: string | null;
 };
 
 type SlotMap = Record<string, { start_time: string; end_time: string }>;
 type ProfileMap = Record<string, { display_name: string | null }>;
+type PersonnelMap = Record<string, { name: string; role_title: string }>;
 
 export default function CompanyAppointmentsPage() {
   const { company } = useCompanyContext();
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [slotMap, setSlotMap] = useState<SlotMap>({});
   const [profileMap, setProfileMap] = useState<ProfileMap>({});
+  const [personnelMap, setPersonnelMap] = useState<PersonnelMap>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,6 +67,9 @@ export default function CompanyAppointmentsPage() {
       setAppointments(appts ?? []);
 
       const studentIds = [...new Set((appts ?? []).map((a) => a.student_id))];
+      const personnelIds = [
+        ...new Set((appts ?? []).map((appointment) => appointment.personnel_id).filter(Boolean)),
+      ] as string[];
 
       if (studentIds.length > 0) {
         const { data: profiles } = await supabase
@@ -81,6 +87,22 @@ export default function CompanyAppointmentsPage() {
         setProfileMap(profileDictionary);
       }
 
+      if (personnelIds.length > 0) {
+        const { data: personnelRows } = await supabase
+          .from("company_personnel")
+          .select("id, name, role_title")
+          .in("id", personnelIds);
+
+        const personnelDictionary: PersonnelMap = {};
+        (personnelRows ?? []).forEach((personnel) => {
+          personnelDictionary[personnel.id] = {
+            name: personnel.name,
+            role_title: personnel.role_title,
+          };
+        });
+        setPersonnelMap(personnelDictionary);
+      }
+
       setLoading(false);
     }
 
@@ -91,11 +113,14 @@ export default function CompanyAppointmentsPage() {
 
   return (
     <div>
+      <div className="kicker">RECRUITING SCHEDULE</div>
       <h1>Appointments</h1>
+      <p className="p" style={{ marginBottom: 22 }}>Review the students scheduled to meet with your team.</p>
       <AppointmentTable
         appointments={appointments}
         slotMap={slotMap}
         profileMap={profileMap}
+        personnelMap={personnelMap}
       />
     </div>
   );

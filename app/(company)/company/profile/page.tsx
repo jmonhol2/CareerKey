@@ -10,11 +10,11 @@ export default function CompanyProfilePage() {
   const [companyName, setCompanyName] = useState("");
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
-  const [majors, setMajors] = useState("");
+  const [majors, setMajors] = useState<string[]>([]);
   const [minGpa, setMinGpa] = useState("");
-  const [skills, setSkills] = useState("");
+  const [skills, setSkills] = useState<string[]>([]);
   const [jobTypes, setJobTypes] = useState("");
-  const [locations, setLocations] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
   const [sponsorshipAvailable, setSponsorshipAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -36,11 +36,11 @@ export default function CompanyProfilePage() {
         setCompanyName(companyData.company_name ?? "");
         setDescription(companyData.description ?? "");
         setWebsite(companyData.website ?? "");
-        setMajors((companyData.majors ?? []).join(", "));
+        setMajors(companyData.majors ?? []);
         setMinGpa(companyData.min_gpa?.toString() ?? "");
-        setSkills((companyData.skills ?? []).join(", "));
+        setSkills(companyData.skills ?? []);
         setJobTypes((companyData.job_types ?? []).join(", "));
-        setLocations((companyData.locations ?? []).join(", "));
+        setLocations(companyData.locations ?? []);
         setSponsorshipAvailable(companyData.sponsorship_available ?? false);
       }
 
@@ -63,23 +63,14 @@ export default function CompanyProfilePage() {
       company_name: companyName,
       description,
       website,
-      majors: majors
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      majors,
       min_gpa: minGpa ? Number(minGpa) : null,
-      skills: skills
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      skills,
       job_types: jobTypes
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
-      locations: locations
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      locations,
       sponsorship_available: sponsorshipAvailable,
     };
 
@@ -106,7 +97,9 @@ export default function CompanyProfilePage() {
 
   return (
     <div>
+      <div className="kicker">COMPANY SETTINGS</div>
       <h1>Company Profile</h1>
+      <p className="p" style={{ marginBottom: 22 }}>Keep the details students use to evaluate your opportunities current.</p>
       <CompanyProfileForm
         companyName={companyName}
         description={description}

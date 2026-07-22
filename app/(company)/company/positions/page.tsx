@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LocationPicker from "@/components/LocationPicker";
+import MajorPicker from "@/components/MajorPicker";
+import SkillPicker from "@/components/SkillPicker";
 import { useCompanyContext } from "@/contexts/CompanyContext";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -16,11 +19,11 @@ export default function CompanyPositionsPage() {
   const { company } = useCompanyContext();
   const [positions, setPositions] = useState<Position[]>([]);
   const [title, setTitle] = useState("");
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState("On-site");
   const [openings, setOpenings] = useState(1);
-  const [majors, setMajors] = useState("");
-  const [skills, setSkills] = useState("");
+  const [majors, setMajors] = useState<string[]>([]);
+  const [skills, setSkills] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -55,20 +58,17 @@ export default function CompanyPositionsPage() {
     setSaving(true);
     setMessage(null);
 
-    const toList = (value: string) =>
-      value.split(",").map((item) => item.trim()).filter(Boolean);
-
     const { data, error } = await supabase
       .from("company_positions")
       .insert({
         company_id: company.id,
         title,
-        location_label: location || null,
+        location_label: location[0] || null,
         location_country: "USA",
         work_mode: workMode,
         openings,
-        majors: toList(majors),
-        skills: toList(skills),
+        majors,
+        skills,
         description: description || null,
       })
       .select("id, title, location_label, work_mode, openings")
@@ -79,9 +79,9 @@ export default function CompanyPositionsPage() {
     } else {
       setPositions((current) => [data as Position, ...current]);
       setTitle("");
-      setLocation("");
-      setMajors("");
-      setSkills("");
+      setLocation([]);
+      setMajors([]);
+      setSkills([]);
       setDescription("");
       setMessage("Position added successfully.");
     }
@@ -90,16 +90,17 @@ export default function CompanyPositionsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 840 }}>
+    <div style={{ maxWidth: 900 }}>
+      <div className="kicker">OPPORTUNITIES</div>
       <h1>Positions{company ? ` — ${company.company_name}` : ""}</h1>
-      <p style={{ color: "rgba(255,255,255,0.72)" }}>
+      <p className="p">
         Create roles for the active company. Database policies restrict company users to
         their own organization while administrators may manage any selected company.
       </p>
 
-      <form onSubmit={handleSubmit} style={formStyle}>
+      <form onSubmit={handleSubmit} style={formStyle} className="formPanel">
         <label style={fieldStyle}>Title<input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>
-        <label style={fieldStyle}>Location<input value={location} onChange={(e) => setLocation(e.target.value)} /></label>
+        <LocationPicker value={location} onChange={setLocation} label="Location" maxItems={1} />
         <label style={fieldStyle}>
           Work mode
           <select value={workMode} onChange={(e) => setWorkMode(e.target.value)}>
@@ -107,8 +108,8 @@ export default function CompanyPositionsPage() {
           </select>
         </label>
         <label style={fieldStyle}>Openings<input type="number" min={1} value={openings} onChange={(e) => setOpenings(Number(e.target.value))} /></label>
-        <label style={fieldStyle}>Majors, comma separated<input value={majors} onChange={(e) => setMajors(e.target.value)} /></label>
-        <label style={fieldStyle}>Skills, comma separated<input value={skills} onChange={(e) => setSkills(e.target.value)} /></label>
+        <MajorPicker value={majors} onChange={setMajors} label="Preferred majors" />
+        <SkillPicker value={skills} onChange={setSkills} />
         <label style={{ ...fieldStyle, gridColumn: "1 / -1" }}>Description<textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} /></label>
         <button className="btn btnPrimary" type="submit" disabled={saving}>
           {saving ? "Saving..." : "Add position"}
@@ -138,8 +139,10 @@ const formStyle: React.CSSProperties = {
   gap: 14,
   marginTop: 24,
   padding: 18,
-  border: "1px solid rgba(255,255,255,0.14)",
-  borderRadius: 16,
+  border: "1px solid var(--border)",
+  borderRadius: 20,
+  background: "var(--surface)",
+  boxShadow: "var(--shadow-soft)",
 };
 
 const fieldStyle: React.CSSProperties = { display: "grid", gap: 6 };
@@ -147,6 +150,7 @@ const positionStyle: React.CSSProperties = {
   display: "grid",
   gap: 4,
   padding: 14,
-  border: "1px solid rgba(255,255,255,0.12)",
-  borderRadius: 12,
+  border: "1px solid var(--border)",
+  borderRadius: 16,
+  background: "var(--surface)",
 };

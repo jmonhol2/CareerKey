@@ -17,6 +17,17 @@ companies.id
   ├── company_positions.company_id
   └── time_slots.company_id
 
+recruiting_events.id
+  └── time_slots.event_id
+
+companies.id + recruiting_events.id
+  └── company_event_settings.(company_id, event_id)
+
+company_personnel.id
+  ├── company_event_personnel.personnel_id
+  ├── personnel_breaks.personnel_id
+  └── appointments.personnel_id
+
 time_slots.id
   └── appointments.slot_id
 ```
@@ -81,14 +92,63 @@ Externally enriched company information:
 
 - `id`: UUID primary key
 - `company_id`: UUID, references `companies.id`
+- `event_id`: UUID, references `recruiting_events.id`
 - `start_time`, `end_time`: timestamp with time zone
 - `capacity`: positive integer
+
+### `recruiting_events`
+
+Administrator-controlled event schedule:
+
+- `id`: UUID primary key
+- `name`: text
+- `start_time`, `end_time`: timestamp with time zone
+- `slot_duration_minutes`: integer from 5 through 120
+- `timezone`: IANA time zone name used for display
+- `is_active`: boolean; a partial unique index permits only one active event
+- `created_by`: nullable UUID referencing `auth.users.id`
+
+Companies may create slots only for the active event, inside its start and end
+time, and using its configured slot duration. Database triggers enforce these
+rules and prevent new appointments on inactive or out-of-window slots.
+
+### `company_event_settings`
+
+One row per company and recruiting event:
+
+- `company_id`: UUID, references `companies.id`
+- `event_id`: UUID, references `recruiting_events.id`
+- `personnel_count`: integer from 1 through 500
+- `created_at`, `updated_at`: timestamp with time zone
+
+The personnel count is the authoritative capacity for every time slot belonging
+to that company and event. Updating it synchronizes existing slot capacities,
+while database triggers prevent reducing capacity below existing bookings.
+
+### `company_personnel`
+
+Reusable company personnel profiles containing `name`, `role_title`, and an
+optional `bio`. Company users manage profiles for their own organization;
+students may read the profiles presented during scheduling.
+
+### `company_event_personnel`
+
+Assigns personnel profiles to a recruiting event. Assigned personnel are
+automatically available for every interval in the event, and the assignment
+count becomes the company capacity for that event.
+
+### `personnel_breaks`
+
+Event-specific unavailable ranges for a personnel member. Breaks must align to
+event appointment intervals and cannot overlap an appointment already booked
+with that person. Slot capacities are recalculated whenever a break changes.
 
 ### `appointments`
 
 - `id`: UUID primary key
 - `slot_id`: UUID, references `time_slots.id`
 - `student_id`: UUID, references `auth.users.id`
+- `personnel_id`: nullable UUID, references `company_personnel.id`; required for new bookings
 - `status`: text; current scheduling logic reads `booked`
 - `created_at`: timestamp with time zone
 

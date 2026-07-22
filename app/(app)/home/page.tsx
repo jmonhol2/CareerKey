@@ -246,12 +246,13 @@ const pageStyle: React.CSSProperties = {
   minHeight: "calc(100vh - 60px)",
   display: "grid",
   placeItems: "center",
-  padding: "22px 18px",
+  padding: "30px 18px 52px",
 };
 
 const cardStyle: React.CSSProperties = {
-  width: "min(1100px, 100%)",
+  width: "min(1120px, 100%)",
   padding: 22,
+  overflow: "hidden",
 };
 
 const headerRow: React.CSSProperties = {
@@ -263,10 +264,11 @@ const headerRow: React.CSSProperties = {
 };
 
 const rolePill: React.CSSProperties = {
-  border: "1px solid rgba(233,236,241,0.14)",
-  borderRadius: 16,
-  padding: "10px 12px",
-  background: "rgba(255,255,255,0.03)",
+  border: "1px solid var(--border)",
+  borderRadius: 999,
+  padding: "10px 14px",
+  color: "var(--primary)",
+  background: "var(--primary-soft)",
   minWidth: 140,
 };
 
@@ -274,8 +276,8 @@ const noticeStyle: React.CSSProperties = {
   marginTop: 14,
   padding: 12,
   borderRadius: 14,
-  border: "1px solid rgba(233,236,241,0.14)",
-  background: "rgba(255,255,255,0.03)",
+  border: "1px solid var(--border)",
+  background: "var(--surface-warm)",
 };
 
 const gridStyle: React.CSSProperties = {
@@ -286,10 +288,11 @@ const gridStyle: React.CSSProperties = {
 };
 
 const panelStyle: React.CSSProperties = {
-  border: "1px solid rgba(233,236,241,0.12)",
-  borderRadius: 18,
-  padding: 16,
-  background: "rgba(0,0,0,0.10)",
+  border: "1px solid var(--border)",
+  borderRadius: 20,
+  padding: 20,
+  background: "var(--surface)",
+  boxShadow: "var(--shadow-soft)",
   minHeight: 160,
 };
 
@@ -310,7 +313,7 @@ const listStyle: React.CSSProperties = {
 const footerStyle: React.CSSProperties = {
   marginTop: 16,
   paddingTop: 12,
-  borderTop: "1px solid rgba(233,236,241,0.12)",
+  borderTop: "1px solid var(--border)",
 };
 
 const linkReset: React.CSSProperties = {

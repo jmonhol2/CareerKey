@@ -25,34 +25,25 @@ function CompanyPortalFrame({ children }: { children: React.ReactNode }) {
   const companyQuery = context.company ? `?companyId=${context.company.id}` : "";
 
   return (
-    <div
-      style={{
-        display: "flex",
-        minHeight: "100vh",
-        background: "linear-gradient(90deg, #0b1020, #031525)",
-      }}
-    >
-      <aside
-        style={{
-          width: 260,
-          padding: 24,
-          borderRight: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.04)",
-          color: "white",
-        }}
-      >
-        <h2 style={{ marginBottom: 8, color: "white" }}>Company Portal</h2>
-        <p style={{ margin: "0 0 20px", color: "rgba(255,255,255,0.66)", fontSize: 13 }}>
-          {context.role === "admin" ? "Administrator company view" : "Company workspace"}
-        </p>
+    <div className="portalLayout">
+      <aside className="portalSidebar">
+        <div className="portalBrand">
+          <span className="appBrandMark" aria-hidden="true">
+            <span className="appKeyRing" />
+            <span className="appKeyStem" />
+          </span>
+          <div>
+            <h2>CareerKey</h2>
+            <p>{context.role === "admin" ? "Administrator company view" : "Company workspace"}</p>
+          </div>
+        </div>
 
         {context.role === "admin" && context.availableCompanies.length > 0 && (
-          <label style={{ display: "grid", gap: 6, marginBottom: 22, fontSize: 12 }}>
+          <label className="portalCompanyPicker">
             Active company
             <select
               value={context.company?.id ?? ""}
               onChange={(event) => context.selectCompany(event.target.value)}
-              style={{ padding: 9, borderRadius: 10, border: 0 }}
             >
               {context.availableCompanies.map((company) => (
                 <option value={company.id} key={company.id}>
@@ -63,23 +54,23 @@ function CompanyPortalFrame({ children }: { children: React.ReactNode }) {
           </label>
         )}
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Link href={`/company${companyQuery}`} style={navLinkStyle}>Dashboard</Link>
-          <Link href={`/company/profile${companyQuery}`} style={navLinkStyle}>Profile</Link>
-          <Link href={`/company/positions${companyQuery}`} style={navLinkStyle}>Positions</Link>
-          <Link href={`/company/slots${companyQuery}`} style={navLinkStyle}>Time Slots</Link>
-          <Link href={`/company/appointments${companyQuery}`} style={navLinkStyle}>
+        <nav className="portalNav">
+          <Link href={`/company${companyQuery}`} className="portalNavLink">Dashboard</Link>
+          <Link href={`/company/profile${companyQuery}`} className="portalNavLink">Profile</Link>
+          <Link href={`/company/positions${companyQuery}`} className="portalNavLink">Positions</Link>
+          <Link href={`/company/slots${companyQuery}`} className="portalNavLink">Time Slots</Link>
+          <Link href={`/company/appointments${companyQuery}`} className="portalNavLink">
             Appointments
           </Link>
           {context.role === "admin" && (
-            <Link href="/admin" style={{ ...navLinkStyle, marginTop: 12 }}>
+            <Link href="/admin" className="portalNavLink">
               Back to Admin
             </Link>
           )}
         </nav>
       </aside>
 
-      <main style={{ flex: 1, padding: 32, color: "white" }}>
+      <main className="portalContent">
         {context.loading ? (
           <p>Loading company access...</p>
         ) : context.error ? (
@@ -91,8 +82,3 @@ function CompanyPortalFrame({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
-
-const navLinkStyle: React.CSSProperties = {
-  color: "white",
-  textDecoration: "none",
-};
