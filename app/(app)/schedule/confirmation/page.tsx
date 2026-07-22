@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import RequirePermission from "@/components/RequirePermission";
 
 type SlotRow = {
   id: string;
@@ -41,9 +42,11 @@ function toIcsUtc(iso: string) {
 
 export default function ConfirmationPage() {
   return (
-    <Suspense fallback={<main className="container">Loading confirmation...</main>}>
-      <ConfirmationPageContent />
-    </Suspense>
+    <RequirePermission permission="student.portal">
+      <Suspense fallback={<main className="container">Loading confirmation...</main>}>
+        <ConfirmationPageContent />
+      </Suspense>
+    </RequirePermission>
   );
 }
 

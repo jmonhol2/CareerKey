@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import DashboardCards from "@/components/company/DashboardCards";
+import { useCompanyContext } from "@/contexts/CompanyContext";
 
 type DashboardStats = {
   totalSlots: number;
@@ -11,6 +12,7 @@ type DashboardStats = {
 };
 
 export default function CompanyDashboardPage() {
+  const { company } = useCompanyContext();
   const [stats, setStats] = useState<DashboardStats>({
     totalSlots: 0,
     bookedAppointments: 0,
@@ -23,21 +25,6 @@ export default function CompanyDashboardPage() {
   useEffect(() => {
     async function loadDashboard() {
       setLoading(true);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: company } = await supabase
-        .from("companies")
-        .select("id, company_name")
-        .eq("owner_user_id", user.id)
-        .single();
 
       if (!company) {
         setLoading(false);
@@ -74,8 +61,8 @@ export default function CompanyDashboardPage() {
       setLoading(false);
     }
 
-    loadDashboard();
-  }, []);
+    void loadDashboard();
+  }, [company]);
 
   if (loading) return <p>Loading dashboard...</p>;
 

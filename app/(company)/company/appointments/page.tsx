@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import AppointmentTable from "@/components/company/AppointmentTable";
+import { useCompanyContext } from "@/contexts/CompanyContext";
 
 type AppointmentRow = {
   id: string;
@@ -16,6 +17,7 @@ type SlotMap = Record<string, { start_time: string; end_time: string }>;
 type ProfileMap = Record<string, { display_name: string | null }>;
 
 export default function CompanyAppointmentsPage() {
+  const { company } = useCompanyContext();
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
   const [slotMap, setSlotMap] = useState<SlotMap>({});
   const [profileMap, setProfileMap] = useState<ProfileMap>({});
@@ -24,21 +26,6 @@ export default function CompanyAppointmentsPage() {
   useEffect(() => {
     async function loadAppointments() {
       setLoading(true);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-
-      const { data: company } = await supabase
-        .from("companies")
-        .select("id")
-        .eq("owner_user_id", user.id)
-        .single();
 
       if (!company) {
         setLoading(false);
@@ -97,8 +84,8 @@ export default function CompanyAppointmentsPage() {
       setLoading(false);
     }
 
-    loadAppointments();
-  }, []);
+    void loadAppointments();
+  }, [company]);
 
   if (loading) return <p>Loading appointments...</p>;
 

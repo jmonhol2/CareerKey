@@ -1,34 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import SlotForm from "@/components/company/SlotForm";
 import SlotTable, { type Slot } from "@/components/company/SlotTable";
+import { useCompanyContext } from "@/contexts/CompanyContext";
 
 export default function CompanySlotsPage() {
-  const [companyId, setCompanyId] = useState<string | null>(null);
+  const { company } = useCompanyContext();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [capacity, setCapacity] = useState(1);
   const [message, setMessage] = useState("");
 
-  async function loadSlots() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return;
-
-    const { data: company } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("owner_user_id", user.id)
-      .single();
-
+  const loadSlots = useCallback(async () => {
     if (!company) return;
-
-    setCompanyId(company.id);
 
     const { data: slotData } = await supabase
       .from("time_slots")
@@ -37,7 +24,7 @@ export default function CompanySlotsPage() {
       .order("start_time", { ascending: true });
 
     setSlots(slotData ?? []);
-  }
+  }, [company]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -45,19 +32,19 @@ export default function CompanySlotsPage() {
     }, 0);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [loadSlots]);
 
   async function handleCreateSlot(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
 
-    if (!companyId) {
+    if (!company) {
       setMessage("No company profile found.");
       return;
     }
 
     const { error } = await supabase.from("time_slots").insert({
-      company_id: companyId,
+      company_id: company.id,
       start_time: startTime,
       end_time: endTime,
       capacity,

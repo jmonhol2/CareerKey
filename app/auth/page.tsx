@@ -4,9 +4,14 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  defaultRouteForRole,
+  isAppRole,
+  type AppRole,
+} from "@/lib/permissions";
 import styles from "./auth.module.css";
 
-type Role = "student" | "company";
+type PublicSignupRole = Extract<AppRole, "student" | "company">;
 type Mode = "login" | "signup";
 
 export default function AuthPage() {
@@ -23,7 +28,7 @@ function AuthForm() {
   const [mode, setMode] = useState<Mode>(() =>
     searchParams.get("mode") === "login" ? "login" : "signup"
   );
-  const [role, setRole] = useState<Role>("student");
+  const [role, setRole] = useState<PublicSignupRole>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -47,7 +52,8 @@ function AuthForm() {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    router.push(profile?.role === "company" ? "/company" : "/home");
+    const appRole = isAppRole(profile?.role) ? profile.role : null;
+    router.push(defaultRouteForRole(appRole));
     router.refresh();
   }, [router]);
 

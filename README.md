@@ -46,7 +46,7 @@ Never commit `.env.local` or expose the service-role, OpenAI, or Google keys thr
 
 ## Database
 
-The application expects Supabase Auth plus the tables, relationships, uniqueness constraints, storage bucket, and RLS policies described in [docs/database.md](docs/database.md). The repository does not yet contain authoritative migrations, so compare that contract with the active Supabase project before creating migrations.
+The application expects Supabase Auth plus the tables and relationships described in [docs/database.md](docs/database.md). Apply the versioned migrations in `supabase/migrations/` to the matching Supabase project after reviewing them against its current schema. The RBAC migration replaces policies on CareerKey's public tables so older permissive policies cannot bypass the new authorization rules.
 
 ## Commands
 
@@ -64,13 +64,21 @@ npm start        # serve a completed production build
 
 - `/auth`: account creation and sign-in
 - `/home`, `/profile`, `/matches`, `/schedule`: student experience
-- `/company`: company dashboard, profile, slots, and appointments
-- `/admin/positions`: position creation
+- `/company`: company dashboard, profile, positions, slots, and appointments
+- `/admin`: administrator dashboard and explicit company workspace selection
 - `/api/parse-resume`: authenticated, owner-scoped résumé parsing
 - `/api/company-insights`: administrator or owning-company enrichment
 
 ## Security model
 
-Browser data access uses the Supabase anonymous key and therefore depends on row-level security. Server routes validate a Supabase bearer token before using the service-role client. Résumé parsing additionally requires that the requested résumé belongs to the authenticated user; company enrichment requires an administrator or the owning company account.
+Browser data access uses the Supabase anonymous key and therefore depends on row-level security. Roles map to named permissions in both `lib/permissions.ts` and the database's `role_permissions` table. Server routes validate a Supabase bearer token before using the service-role client. Résumé parsing additionally requires that the requested résumé belongs to the authenticated user; company enrichment requires an administrator or the owning company account.
+
+Public signup can create only `student` and `company` profiles. Promote an account to `admin` only from a trusted environment such as the Supabase SQL editor:
+
+```sql
+update public.profiles
+set role = 'admin'
+where user_id = '<auth-user-uuid>';
+```
 
 When adding a server route, do not use the service-role client until the caller has been authenticated and the target resource has been authorized.

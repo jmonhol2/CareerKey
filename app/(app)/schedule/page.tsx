@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
+import RequirePermission from "@/components/RequirePermission";
 
 type Company = {
   id: string;
@@ -244,9 +245,11 @@ function getOrInitTimeZone(): string {
 
 export default function SchedulePage() {
   return (
-    <Suspense fallback={<main className="container">Loading schedule...</main>}>
-      <SchedulePageContent />
-    </Suspense>
+    <RequirePermission permission="student.portal">
+      <Suspense fallback={<main className="container">Loading schedule...</main>}>
+        <SchedulePageContent />
+      </Suspense>
+    </RequirePermission>
   );
 }
 

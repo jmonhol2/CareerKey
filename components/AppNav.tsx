@@ -1,37 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/lib/supabaseClient";
-
-type Role = "student" | "company" | "admin";
 
 export default function AppNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [role, setRole] = useState<Role | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setRole(null);
-        return;
-      }
-
-      const { data } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      setRole((data?.role as Role | undefined) ?? null);
-    })();
-  }, []);
+  const authorization = useAuthorization();
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -52,26 +29,22 @@ export default function AppNav() {
           Home
         </Link>
 
-        <Link className={navClass("/profile")} href="/profile">
-          Profile
-        </Link>
+        {authorization.can("student.portal") && (
+          <>
+            <Link className={navClass("/profile")} href="/profile">Profile</Link>
+            <Link className={navClass("/matches")} href="/matches">Matches</Link>
+            <Link className={navClass("/schedule")} href="/schedule">Schedule</Link>
+          </>
+        )}
 
-        <Link className={navClass("/matches")} href="/matches">
-          Matches
-        </Link>
-
-        <Link className={navClass("/schedule")} href="/schedule">
-          Schedule
-        </Link>
-
-        {role === "company" && (
+        {authorization.can("company.portal") && (
           <Link className={navClass("/company")} href="/company">
             Company
           </Link>
         )}
 
-        {(role === "admin" || role === "company") && (
-          <Link className={navClass("/admin/positions")} href="/admin/positions">
+        {authorization.can("admin.portal") && (
+          <Link className={navClass("/admin")} href="/admin">
             Admin
           </Link>
         )}

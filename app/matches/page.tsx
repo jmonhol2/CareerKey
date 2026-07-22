@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
+import RequirePermission from "@/components/RequirePermission";
 
 type StudentProfile = {
   user_id: string;
@@ -167,6 +168,14 @@ function getProfileCompleteness(profile: StudentProfile | null) {
 }
 
 export default function MatchesPage() {
+  return (
+    <RequirePermission permission="student.portal">
+      <MatchesPageContent />
+    </RequirePermission>
+  );
+}
+
+function MatchesPageContent() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);

@@ -107,19 +107,20 @@ Add a unique constraint on `(slot_id, student_id)` unless repeat bookings for th
 
 Create a private bucket named `resumes`. Objects are written under `{auth.uid()}/{random-id}.{extension}`. Storage policies should allow authenticated users to create and read only objects whose first path segment equals their own user ID.
 
-## RLS expectations
+## Roles, permissions, and RLS
 
-Enable row-level security on every application table. At minimum:
+The versioned migration in `supabase/migrations/` creates `app_roles`, `app_permissions`, and `role_permissions`, plus an `authorize(permission)` database helper. Application routes use the matching permission keys from `lib/permissions.ts`; database policies remain the security boundary.
 
-- Users may read and update only their own `profiles`, `student_profiles`, and `student_resumes` rows.
-- Students may read companies, company profiles, positions, and available slots.
-- Students may read and create only their own appointments.
-- Company users may update only the `companies` row where `owner_user_id = auth.uid()`.
-- Company users may manage positions and slots only for their owned company and read appointments attached to those slots.
-- Administrator-only writes must check `profiles.role = 'admin'`; hiding an admin page in the UI is not authorization.
+- Students can use student pages, read company opportunities, and manage only their own appointments.
+- Company users can manage only the company they own, its positions, and its time slots. They can read appointments attached to that company.
+- Administrators can enter any company workspace through an explicit company selection and manage all non-sensitive application records.
+- Resume records and files remain owner-only, including for administrators.
+- Public clients cannot create an administrator account or change their own role. Promotions must run through a trusted SQL or service-role process.
+
+The RBAC migration intentionally replaces all policies on CareerKey's public tables. Review any pre-existing policies on `storage.objects` separately and remove broad policies that could expose the `resumes` bucket. PostgreSQL permissive policies combine with OR.
 
 The service-role key bypasses RLS. Its use must remain limited to authenticated server routes with explicit resource authorization.
 
-## Recommended next schema step
+## Applying the migration
 
-Export the active Supabase schema and policies, review them against this contract, and commit versioned migrations under `supabase/migrations/`. That will make local development and deployments reproducible.
+Confirm the live schema matches this contract, then apply `supabase/migrations/20260722190000_permission_based_rbac.sql` using the Supabase CLI or SQL editor. Test with one account for each role before promoting the production administrator account.

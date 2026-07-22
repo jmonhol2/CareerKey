@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
+import RequirePermission from "@/components/RequirePermission";
 
 type StudentProfile = {
   user_id: string;
@@ -83,6 +84,14 @@ function getProfileCompleteness(profile: StudentProfile | null) {
 }
 
 export default function ProfilePage() {
+  return (
+    <RequirePermission permission="student.portal">
+      <ProfilePageContent />
+    </RequirePermission>
+  );
+}
+
+function ProfilePageContent() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);

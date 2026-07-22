@@ -5,13 +5,21 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import AppNav from "@/components/AppNav";
-
-type Role = "student" | "company" | "admin";
+import RequirePermission from "@/components/RequirePermission";
+import { isAppRole, type AppRole } from "@/lib/permissions";
 
 export default function HomePage() {
+  return (
+    <RequirePermission permission="dashboard.view">
+      <HomePageContent />
+    </RequirePermission>
+  );
+}
+
+function HomePageContent() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<Role | null>(null);
+  const [role, setRole] = useState<AppRole | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -35,18 +43,20 @@ export default function HomePage() {
 
       if (profErr) setMsg(`Profile read failed: ${profErr.message}`);
 
-      if (prof?.role) {
-        setRole(prof.role as Role);
+      if (isAppRole(prof?.role)) {
+        setRole(prof.role);
         setName(prof.display_name ?? null);
         setLoading(false);
         return;
       }
 
       const meta = (user.user_metadata || {}) as {
-        role?: Role;
+        role?: string;
         display_name?: string | null;
       };
-      const metaRole = meta.role || "student";
+      // Account owners can edit user metadata, so it must never grant admin access.
+      const metaRole: Extract<AppRole, "student" | "company"> =
+        meta.role === "company" ? "company" : "student";
       const metaName = meta.display_name ?? null;
 
       const { error: insErr } = await supabase.from("profiles").insert({
@@ -77,7 +87,7 @@ export default function HomePage() {
         return;
       }
 
-      setRole(prof2.role as Role);
+      setRole(isAppRole(prof2.role) ? prof2.role : null);
       setName(prof2.display_name ?? null);
       setLoading(false);
     })();
@@ -170,13 +180,25 @@ export default function HomePage() {
             </section>
           </Link>
 
-          {(role === "admin" || role === "company") && (
-            <Link href="/admin/positions" style={linkReset}>
+          {role === "company" && (
+            <Link href="/company/positions" style={linkReset}>
               <section style={panelStyle}>
-                <div className="kicker">ADMIN</div>
+                <div className="kicker">COMPANY</div>
                 <h2 style={panelTitle}>Manage Positions</h2>
                 <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
                   Add and maintain company positions, locations, and openings.
+                </p>
+              </section>
+            </Link>
+          )}
+
+          {role === "admin" && (
+            <Link href="/admin" style={linkReset}>
+              <section style={panelStyle}>
+                <div className="kicker">ADMIN</div>
+                <h2 style={panelTitle}>Open Admin Console</h2>
+                <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
+                  Review companies and enter an authorized company workspace.
                 </p>
               </section>
             </Link>
