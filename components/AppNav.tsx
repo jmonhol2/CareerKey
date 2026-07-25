@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthorization } from "@/hooks/useAuthorization";
 import { supabase } from "@/lib/supabaseClient";
+import NavIcon from "@/components/NavIcon";
 
 export default function AppNav() {
   const pathname = usePathname();
@@ -18,7 +19,7 @@ export default function AppNav() {
 
   function navClass(href: string) {
     const active = href === "/home" ? pathname === href : pathname.startsWith(href);
-    return active ? "navlink navlinkActive" : "navlink";
+    return active ? "navlink iconNavLink navlinkActive" : "navlink iconNavLink";
   }
 
   return (
@@ -32,32 +33,74 @@ export default function AppNav() {
       </div>
 
       <div className="navlinks">
-        <Link className={navClass("/home")} href="/home">
-          Home
+        <Link
+          aria-label="Home"
+          className={navClass("/home")}
+          data-tooltip="Home"
+          href="/home"
+        >
+          <NavIcon name="home" />
         </Link>
 
         {authorization.can("student.portal") && (
           <>
-            <Link className={navClass("/profile")} href="/profile">Profile</Link>
-            <Link className={navClass("/matches")} href="/matches">Matches</Link>
-            <Link className={navClass("/schedule")} href="/schedule">Schedule</Link>
+            <Link
+              aria-label="Profile"
+              className={navClass("/profile")}
+              data-tooltip="Profile"
+              href="/profile"
+            >
+              <NavIcon name="profile" />
+            </Link>
+            <Link
+              aria-label="Matches"
+              className={navClass("/matches")}
+              data-tooltip="Matches"
+              href="/matches"
+            >
+              <NavIcon name="matches" />
+            </Link>
+            <Link
+              aria-label="My schedule"
+              className={navClass("/schedule")}
+              data-tooltip="My schedule"
+              href="/schedule"
+            >
+              <NavIcon name="schedule" />
+            </Link>
           </>
         )}
 
         {authorization.can("company.portal") && (
-          <Link className={navClass("/company")} href="/company">
-            Company
+          <Link
+            aria-label="Company workspace"
+            className={navClass("/company")}
+            data-tooltip="Company workspace"
+            href="/company"
+          >
+            <NavIcon name="company" />
           </Link>
         )}
 
         {authorization.can("admin.portal") && (
-          <Link className={navClass("/admin")} href="/admin">
-            Admin
+          <Link
+            aria-label="Administration"
+            className={navClass("/admin")}
+            data-tooltip="Administration"
+            href="/admin"
+          >
+            <NavIcon name="admin" />
           </Link>
         )}
 
-        <button className="navlink" type="button" onClick={handleLogout}>
-          Log out
+        <button
+          aria-label="Log out"
+          className="navlink iconNavLink"
+          data-tooltip="Log out"
+          type="button"
+          onClick={handleLogout}
+        >
+          <NavIcon name="logout" />
         </button>
       </div>
     </div>
