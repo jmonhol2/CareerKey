@@ -14,6 +14,21 @@ import styles from "./auth.module.css";
 type PublicSignupRole = Extract<AppRole, "student" | "company">;
 type Mode = "login" | "signup";
 
+function getFriendlyAuthError(error: unknown) {
+  const fallback =
+    error instanceof Error ? error.message : "Something went wrong.";
+  const normalized = fallback.toLocaleLowerCase();
+
+  if (
+    normalized.includes("email rate limit") ||
+    normalized.includes("rate limit exceeded")
+  ) {
+    return "CareerKey cannot send another confirmation email right now. Supabase’s test email service allows only two emails per hour for the entire project. Please wait for the hourly limit to reset, then try again.";
+  }
+
+  return fallback;
+}
+
 export default function AuthPage() {
   return (
     <Suspense fallback={<main className={styles.page}>Loading...</main>}>
@@ -34,6 +49,13 @@ function AuthForm() {
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<
+    string | null
+  >(null);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState<string | null>(
+    null
+  );
 
   const routeAfterLogin = useCallback(async () => {
     const {
@@ -53,7 +75,15 @@ function AuthForm() {
       .maybeSingle();
 
     const appRole = isAppRole(profile?.role) ? profile.role : null;
-    router.push(defaultRouteForRole(appRole));
+    const shouldPromptForStudentProfile =
+      appRole === "student" &&
+      user.user_metadata?.profile_onboarding_pending === true;
+
+    router.push(
+      shouldPromptForStudentProfile
+        ? "/profile?welcome=1"
+        : defaultRouteForRole(appRole)
+    );
     router.refresh();
   }, [router]);
 
@@ -67,6 +97,8 @@ function AuthForm() {
   function changeMode(nextMode: Mode) {
     setMode(nextMode);
     setMessage(null);
+    setPendingConfirmationEmail(null);
+    setConfirmationMessage(null);
   }
 
   async function onSubmit(event: React.FormEvent) {
@@ -80,7 +112,12 @@ function AuthForm() {
           email,
           password,
           options: {
-            data: { role, display_name: displayName || null },
+            emailRedirectTo: `${window.location.origin}/auth?mode=login`,
+            data: {
+              role,
+              display_name: displayName || null,
+              profile_onboarding_pending: role === "student",
+            },
           },
         });
         if (error) throw error;
@@ -88,17 +125,10 @@ function AuthForm() {
         const userId = data.user?.id;
         if (!userId) throw new Error("No user returned from sign up.");
 
-        const { error: profileError } = await supabase.from("profiles").upsert(
-          { user_id: userId, role, display_name: displayName || null },
-          { onConflict: "user_id" }
-        );
-        if (profileError) throw profileError;
-
         if (data.session?.user?.id) {
           await routeAfterLogin();
         } else {
-          setMessage("Account created. Check your inbox to confirm your email, then log in.");
-          setMode("login");
+          setPendingConfirmationEmail(data.user?.email ?? email);
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -106,10 +136,108 @@ function AuthForm() {
         await routeAfterLogin();
       }
     } catch (error: unknown) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong.");
+      setMessage(getFriendlyAuthError(error));
     } finally {
       setLoading(false);
     }
+  }
+
+  async function resendConfirmationEmail() {
+    if (!pendingConfirmationEmail) return;
+
+    setResendingConfirmation(true);
+    setConfirmationMessage(null);
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: pendingConfirmationEmail,
+    });
+
+    setConfirmationMessage(
+      error
+        ? getFriendlyAuthError(error)
+        : "A new confirmation email is on its way. It may take a minute to arrive."
+    );
+    setResendingConfirmation(false);
+  }
+
+  if (pendingConfirmationEmail) {
+    return (
+      <main className={styles.page}>
+        <Link href="/" className={styles.brand} aria-label="CareerKey home">
+          <span className={styles.brandMark} aria-hidden="true">CK</span>
+          CareerKey
+        </Link>
+
+        <section
+          className={`${styles.card} ${styles.confirmationCard}`}
+          aria-labelledby="confirm-email-heading"
+        >
+          <div className={styles.confirmationIcon} aria-hidden="true">
+            <span>✓</span>
+          </div>
+          <span className={styles.eyebrow}>ONE QUICK STEP</span>
+          <h1 id="confirm-email-heading">Confirm your email</h1>
+          <p className={styles.confirmationLead}>
+            Your CareerKey account has been created. We sent a confirmation link
+            to:
+          </p>
+          <strong className={styles.confirmationEmail}>
+            {pendingConfirmationEmail}
+          </strong>
+
+          <div className={styles.confirmationSteps}>
+            <div>
+              <span>1</span>
+              <p>Open the email from CareerKey.</p>
+            </div>
+            <div>
+              <span>2</span>
+              <p>Select the confirmation link.</p>
+            </div>
+            <div>
+              <span>3</span>
+              <p>Return here and log in to build your profile.</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className={styles.submit}
+            onClick={() => changeMode("login")}
+          >
+            Continue to login
+            <span aria-hidden="true">→</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.resendButton}
+            onClick={() => void resendConfirmationEmail()}
+            disabled={resendingConfirmation}
+          >
+            {resendingConfirmation
+              ? "Sending another email..."
+              : "Resend confirmation email"}
+          </button>
+
+          {confirmationMessage && (
+            <p className={styles.message} role="status">
+              {confirmationMessage}
+            </p>
+          )}
+
+          <p className={styles.confirmationHelp}>
+            Didn’t receive it? Check your spam folder or confirm that the email
+            address above is correct.
+          </p>
+        </section>
+
+        <p className={styles.footerNote}>
+          Your profile will be ready when you return.
+        </p>
+      </main>
+    );
   }
 
   return (
@@ -226,6 +354,13 @@ function AuthForm() {
             {loading ? "Please wait..." : mode === "signup" ? "Create account" : "Log in"}
             {!loading && <span aria-hidden="true">→</span>}
           </button>
+
+          {mode === "signup" && role === "student" && (
+            <p className={styles.nextStep}>
+              Next, we’ll invite you to complete your profile. You can use your
+              resume, enter details manually, or come back later.
+            </p>
+          )}
 
           {message && (
             <p className={styles.message} role="status">

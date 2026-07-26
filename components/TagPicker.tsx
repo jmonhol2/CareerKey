@@ -31,9 +31,19 @@ export default function TagPicker({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const limitReached = maxItems !== undefined && value.length >= maxItems;
+  const uniqueValue = useMemo(() => {
+    const seen = new Set<string>();
 
-  const selected = useMemo(() => new Set(value.map(normalize)), [value]);
+    return value.filter((item) => {
+      const normalized = normalize(item);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  }, [value]);
+  const limitReached = maxItems !== undefined && uniqueValue.length >= maxItems;
+
+  const selected = useMemo(() => new Set(uniqueValue.map(normalize)), [uniqueValue]);
   const suggestions = useMemo(() => {
     const search = normalize(query);
     if (!search) return [];
@@ -58,14 +68,14 @@ export default function TagPicker({
     const nextItem = (candidate ?? suggestions[activeIndex] ?? query).trim();
     if (!nextItem || selected.has(normalize(nextItem))) return;
 
-    onChange([...value, nextItem]);
+    onChange([...uniqueValue, nextItem]);
     setQuery("");
     setOpen(false);
     setActiveIndex(0);
   }
 
   function removeItem(item: string) {
-    onChange(value.filter((selectedItem) => selectedItem !== item));
+    onChange(uniqueValue.filter((selectedItem) => selectedItem !== item));
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -94,9 +104,9 @@ export default function TagPicker({
     >
       <label htmlFor={inputId}>{label}</label>
 
-      {value.length > 0 && (
+      {uniqueValue.length > 0 && (
         <div className="tagPickerTags" aria-label={`Selected ${itemName}s`}>
-          {value.map((item) => (
+          {uniqueValue.map((item) => (
             <span className="tagPickerTag" key={item}>
               {item}
               <button

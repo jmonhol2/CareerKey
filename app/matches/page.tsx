@@ -7,6 +7,7 @@ import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
 import RequirePermission from "@/components/RequirePermission";
+import { locationPreferenceMatches } from "@/lib/usStates";
 
 type StudentProfile = {
   user_id: string;
@@ -107,14 +108,20 @@ function computePositionMatch(position: PositionRow, profile: StudentProfile | n
     .trim()
     .toLowerCase();
 
-  if (positionLocation) {
-    const exactLocation = preferredLocations.some((loc) => positionLocation.includes(loc));
+  if (profile.open_to_relocation) {
+    score += 20;
+    reasons.push("open to opportunities anywhere");
+  } else if (positionLocation) {
+    const exactLocation = preferredLocations.some((location) =>
+      locationPreferenceMatches(
+        location,
+        positionLocation,
+        position.location_state
+      )
+    );
     if (exactLocation) {
       score += 20;
       reasons.push("preferred location match");
-    } else if (profile.open_to_relocation) {
-      score += 10;
-      reasons.push("open to relocation");
     }
   }
 
@@ -152,7 +159,12 @@ function getProfileCompleteness(profile: StudentProfile | null) {
     { label: "class year", done: !!profile.class_year },
     { label: "GPA", done: profile.gpa != null },
     { label: "work authorization", done: !!profile.work_authorization },
-    { label: "preferred locations", done: !!profile.preferred_locations?.length },
+    {
+      label: "location preference",
+      done:
+        !!profile.open_to_relocation ||
+        !!profile.preferred_locations?.length,
+    },
     { label: "interested role types", done: !!profile.interested_role_types?.length },
     { label: "preferred work modes", done: !!profile.preferred_work_modes?.length },
     { label: "industries of interest", done: !!profile.industries_of_interest?.length },

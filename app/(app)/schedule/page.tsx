@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
 import RequirePermission from "@/components/RequirePermission";
 import { formatEventDateTime, type RecruitingEvent } from "@/lib/events";
+import { locationPreferenceMatches } from "@/lib/usStates";
 
 type Company = {
   id: string;
@@ -222,16 +223,20 @@ function computePositionMatch(position: CompanyPosition, profile: StudentProfile
     .trim()
     .toLowerCase();
 
-  if (positionLocation) {
+  if (profile.open_to_relocation) {
+    score += 20;
+    reasons.push("open to opportunities anywhere");
+  } else if (positionLocation) {
     const exactLocation = preferredLocations.some((location) =>
-      positionLocation.includes(location)
+      locationPreferenceMatches(
+        location,
+        positionLocation,
+        position.location_state
+      )
     );
     if (exactLocation) {
       score += 20;
       reasons.push("preferred location match");
-    } else if (profile.open_to_relocation) {
-      score += 10;
-      reasons.push("open to relocation");
     }
   }
 

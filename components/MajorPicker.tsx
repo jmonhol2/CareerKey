@@ -7,12 +7,14 @@ type MajorPickerProps = {
   label?: string;
   value: string[];
   onChange: (majors: string[]) => void;
+  maxItems?: number;
 };
 
 export default function MajorPicker({
   label = "Majors sought",
   value,
   onChange,
+  maxItems,
 }: MajorPickerProps) {
   return (
     <TagPicker
@@ -22,6 +24,7 @@ export default function MajorPicker({
       options={MAJOR_OPTIONS}
       placeholder="Start typing a major"
       itemName="major"
+      maxItems={maxItems}
     />
   );
 }
