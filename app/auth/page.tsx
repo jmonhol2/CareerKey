@@ -1,23 +1,61 @@
-﻿"use client";
+"use client";
 
-import React, { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import {
+  defaultRouteForRole,
+  isAppRole,
+  type AppRole,
+} from "@/lib/permissions";
+import styles from "./auth.module.css";
 
-type Role = "student" | "company";
+type PublicSignupRole = Extract<AppRole, "student" | "company">;
+type Mode = "login" | "signup";
+
+function getFriendlyAuthError(error: unknown) {
+  const fallback =
+    error instanceof Error ? error.message : "Something went wrong.";
+  const normalized = fallback.toLocaleLowerCase();
+
+  if (
+    normalized.includes("email rate limit") ||
+    normalized.includes("rate limit exceeded")
+  ) {
+    return "CareerKey cannot send another confirmation email right now. Supabase’s test email service allows only two emails per hour for the entire project. Please wait for the hourly limit to reset, then try again.";
+  }
+
+  return fallback;
+}
 
 export default function AuthPage() {
+  return (
+    <Suspense fallback={<main className={styles.page}>Loading...</main>}>
+      <AuthForm />
+    </Suspense>
+  );
+}
+
+function AuthForm() {
   const router = useRouter();
-
-  const [mode, setMode] = useState<"login" | "signup">("signup");
-  const [role, setRole] = useState<Role>("student");
-
+  const searchParams = useSearchParams();
+  const [mode, setMode] = useState<Mode>(() =>
+    searchParams.get("mode") === "login" ? "login" : "signup"
+  );
+  const [role, setRole] = useState<PublicSignupRole>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState<
+    string | null
+  >(null);
+  const [resendingConfirmation, setResendingConfirmation] = useState(false);
+  const [confirmationMessage, setConfirmationMessage] = useState<string | null>(
+    null
+  );
 
   const routeAfterLogin = useCallback(async () => {
     const {
@@ -36,29 +74,37 @@ export default function AuthPage() {
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (profile?.role === "company") {
-      router.push("/company");
-    } else {
-      router.push("/home");
-    }
+    const appRole = isAppRole(profile?.role) ? profile.role : null;
+    const shouldPromptForStudentProfile =
+      appRole === "student" &&
+      user.user_metadata?.profile_onboarding_pending === true;
 
+    router.push(
+      shouldPromptForStudentProfile
+        ? "/profile?welcome=1"
+        : defaultRouteForRole(appRole)
+    );
     router.refresh();
   }, [router]);
 
   useEffect(() => {
-    (async () => {
+    void (async () => {
       const { data } = await supabase.auth.getSession();
-      const session = data.session;
-      if (session?.user?.id) {
-        await routeAfterLogin();
-      }
+      if (data.session?.user?.id) await routeAfterLogin();
     })();
   }, [routeAfterLogin]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function changeMode(nextMode: Mode) {
+    setMode(nextMode);
+    setMessage(null);
+    setPendingConfirmationEmail(null);
+    setConfirmationMessage(null);
+  }
+
+  async function onSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setLoading(true);
-    setMsg(null);
+    setMessage(null);
 
     try {
       if (mode === "signup") {
@@ -66,279 +112,272 @@ export default function AuthPage() {
           email,
           password,
           options: {
-            data: { role, display_name: displayName || null },
+            emailRedirectTo: `${window.location.origin}/auth?mode=login`,
+            data: {
+              role,
+              display_name: displayName || null,
+              profile_onboarding_pending: role === "student",
+            },
           },
         });
         if (error) throw error;
 
         const userId = data.user?.id;
-        if (!userId) throw new Error("No user returned from signUp.");
+        if (!userId) throw new Error("No user returned from sign up.");
 
-        const { error: upsertErr } = await supabase
-          .from("profiles")
-          .upsert(
-            { user_id: userId, role, display_name: displayName || null },
-            { onConflict: "user_id" }
-          );
-
-        if (upsertErr) throw upsertErr;
-
-        // If email confirmation is ON, there may be no session yet
         if (data.session?.user?.id) {
           await routeAfterLogin();
         } else {
-          setMsg(
-            "Account created. If email confirmation is enabled, check your inbox, then log in."
-          );
-          setMode("login");
+          setPendingConfirmationEmail(data.user?.email ?? email);
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-
         await routeAfterLogin();
       }
-    } catch (err: unknown) {
-      setMsg(err instanceof Error ? err.message : "Something went wrong.");
+    } catch (error: unknown) {
+      setMessage(getFriendlyAuthError(error));
     } finally {
       setLoading(false);
     }
   }
 
+  async function resendConfirmationEmail() {
+    if (!pendingConfirmationEmail) return;
+
+    setResendingConfirmation(true);
+    setConfirmationMessage(null);
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: pendingConfirmationEmail,
+    });
+
+    setConfirmationMessage(
+      error
+        ? getFriendlyAuthError(error)
+        : "A new confirmation email is on its way. It may take a minute to arrive."
+    );
+    setResendingConfirmation(false);
+  }
+
+  if (pendingConfirmationEmail) {
+    return (
+      <main className={styles.page}>
+        <Link href="/" className={styles.brand} aria-label="CareerKey home">
+          <span className={styles.brandMark} aria-hidden="true">CK</span>
+          CareerKey
+        </Link>
+
+        <section
+          className={`${styles.card} ${styles.confirmationCard}`}
+          aria-labelledby="confirm-email-heading"
+        >
+          <div className={styles.confirmationIcon} aria-hidden="true">
+            <span>✓</span>
+          </div>
+          <span className={styles.eyebrow}>ONE QUICK STEP</span>
+          <h1 id="confirm-email-heading">Confirm your email</h1>
+          <p className={styles.confirmationLead}>
+            Your CareerKey account has been created. We sent a confirmation link
+            to:
+          </p>
+          <strong className={styles.confirmationEmail}>
+            {pendingConfirmationEmail}
+          </strong>
+
+          <div className={styles.confirmationSteps}>
+            <div>
+              <span>1</span>
+              <p>Open the email from CareerKey.</p>
+            </div>
+            <div>
+              <span>2</span>
+              <p>Select the confirmation link.</p>
+            </div>
+            <div>
+              <span>3</span>
+              <p>Return here and log in to build your profile.</p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className={styles.submit}
+            onClick={() => changeMode("login")}
+          >
+            Continue to login
+            <span aria-hidden="true">→</span>
+          </button>
+
+          <button
+            type="button"
+            className={styles.resendButton}
+            onClick={() => void resendConfirmationEmail()}
+            disabled={resendingConfirmation}
+          >
+            {resendingConfirmation
+              ? "Sending another email..."
+              : "Resend confirmation email"}
+          </button>
+
+          {confirmationMessage && (
+            <p className={styles.message} role="status">
+              {confirmationMessage}
+            </p>
+          )}
+
+          <p className={styles.confirmationHelp}>
+            Didn’t receive it? Check your spam folder or confirm that the email
+            address above is correct.
+          </p>
+        </section>
+
+        <p className={styles.footerNote}>
+          Your profile will be ready when you return.
+        </p>
+      </main>
+    );
+  }
+
   return (
-    <main style={pageStyle}>
-      <div style={shellStyle} className="authShell">
-        {/* Left: About / marketing */}
-        <section style={aboutCardStyle}>
-          <div className="kicker">CareerKey • Prototype</div>
-          <h1
-            className="h1"
-            style={{ fontSize: 40, lineHeight: 1.05, marginTop: 6 }}
-          >
-            Helping you get your foot in the door.
-          </h1>
+    <main className={styles.page}>
+      <Link href="/" className={styles.brand} aria-label="CareerKey home">
+        <span className={styles.brandMark} aria-hidden="true">CK</span>
+        CareerKey
+      </Link>
 
-          <p className="p" style={{ marginTop: 10 }}>
-            CareerKey is a simple prototype for the Engineering Professional
-            Practice (EPP) Expo workflow. It’s designed to help students and
-            companies connect faster and make scheduling conversations easier.
+      <section className={styles.card}>
+        <div className={styles.intro}>
+          <span className={styles.eyebrow}>
+            {mode === "signup" ? "JOIN CAREERKEY" : "WELCOME BACK"}
+          </span>
+          <h1>{mode === "signup" ? "Create your account" : "Log in to CareerKey"}</h1>
+          <p>
+            {mode === "signup"
+              ? "Start building better career connections today."
+              : "Continue to your matches, profile, and schedule."}
           </p>
+        </div>
 
-          <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-            <div style={featureStyle}>
-              <div style={dotStyle} />
-              <div>
-                <div style={featureTitleStyle}>Student profiles</div>
-                <div className="p" style={featureTextStyle}>
-                  Create a profile and (soon) upload a resume to highlight skills
-                  and interests.
-                </div>
-              </div>
-            </div>
-
-            <div style={featureStyle}>
-              <div style={dotStyle} />
-              <div>
-                <div style={featureTitleStyle}>Company registration</div>
-                <div className="p" style={featureTextStyle}>
-                  Companies define what they’re looking for and manage available
-                  time slots.
-                </div>
-              </div>
-            </div>
-
-            <div style={featureStyle}>
-              <div style={dotStyle} />
-              <div>
-                <div style={featureTitleStyle}>
-                  Scheduling that reduces waiting
-                </div>
-                <div className="p" style={featureTextStyle}>
-                  Students book open appointments, receive an appointment ID, and
-                  add it to a calendar.
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 14, opacity: 0.9 }}>
-            <div className="p" style={{ fontSize: 13 }}>
-              Note: This is a class prototype — minimum necessary data, opt-in
-              use, and simple demo flows.
-            </div>
-          </div>
-        </section>
-
-        {/* Right: Auth card */}
-        <section style={authCardStyle} className="card">
-          <div className="kicker">Test Auth</div>
-
-          <h2 className="h1" style={{ fontSize: 28, marginTop: 6 }}>
-            {mode === "signup" ? "Create an account" : "Log in"}
-          </h2>
-          <p className="p" style={{ marginTop: 6 }}>
-            Choose Student or Company at signup. After login, you’ll be sent to
-            your role dashboard.
-          </p>
-
-          <div className="btnRow" style={{ marginTop: 12 }}>
-            <button
-              className={`btn ${mode === "signup" ? "btnPrimary" : ""}`}
-              onClick={() => setMode("signup")}
-              type="button"
-            >
-              Sign up
-            </button>
-            <button
-              className={`btn ${mode === "login" ? "btnPrimary" : ""}`}
-              onClick={() => setMode("login")}
-              type="button"
-            >
-              Log in
-            </button>
-          </div>
-
-          <form
-            onSubmit={onSubmit}
-            style={{ display: "grid", gap: 10, marginTop: 14 }}
+        <div className={styles.tabs} aria-label="Authentication options">
+          <button
+            type="button"
+            className={mode === "signup" ? styles.activeTab : styles.tab}
+            onClick={() => changeMode("signup")}
           >
-            {mode === "signup" && (
-              <>
-                <label className="p" style={{ fontSize: 14 }}>
-                  Account type
-                </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as Role)}
-                  style={fieldStyle}
-                >
-                  <option value="student">Student</option>
-                  <option value="company">Company</option>
-                </select>
+            Sign up
+          </button>
+          <button
+            type="button"
+            className={mode === "login" ? styles.activeTab : styles.tab}
+            onClick={() => changeMode("login")}
+          >
+            Log in
+          </button>
+        </div>
 
-                <label className="p" style={{ fontSize: 14 }}>
-                  Display name (optional)
-                </label>
+        <form className={styles.form} onSubmit={onSubmit}>
+          {mode === "signup" && (
+            <>
+              <fieldset className={styles.roleFieldset}>
+                <legend>I am joining as a</legend>
+                <div className={styles.roleOptions}>
+                  <button
+                    type="button"
+                    className={role === "student" ? styles.activeRole : styles.roleOption}
+                    aria-pressed={role === "student"}
+                    onClick={() => setRole("student")}
+                  >
+                    <span className={styles.roleIcon}>S</span>
+                    <span>
+                      <strong>Student</strong>
+                      <small>Find opportunities</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={role === "company" ? styles.activeRole : styles.roleOption}
+                    aria-pressed={role === "company"}
+                    onClick={() => setRole("company")}
+                  >
+                    <span className={`${styles.roleIcon} ${styles.companyRole}`}>C</span>
+                    <span>
+                      <strong>Company</strong>
+                      <small>Meet candidates</small>
+                    </span>
+                  </button>
+                </div>
+              </fieldset>
+
+              <label className={styles.field} htmlFor="display-name">
+                <span>Display name <small>Optional</small></span>
                 <input
+                  id="display-name"
                   value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Jordan / DENSO Recruiting"
-                  style={fieldStyle}
+                  onChange={(event) => setDisplayName(event.target.value)}
+                  placeholder={role === "student" ? "Jordan Lee" : "Recruiting team name"}
+                  autoComplete="name"
                 />
-              </>
-            )}
+              </label>
+            </>
+          )}
 
-            <label className="p" style={{ fontSize: 14 }}>
-              Email
-            </label>
+          <label className={styles.field} htmlFor="email">
+            <span>Email address</span>
             <input
+              id="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@utk.edu"
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
               type="email"
-              style={fieldStyle}
+              autoComplete="email"
               required
             />
+          </label>
 
-            <label className="p" style={{ fontSize: 14 }}>
-              Password
-            </label>
+          <label className={styles.field} htmlFor="password">
+            <span>Password</span>
             <input
+              id="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="At least 6 characters"
               type="password"
-              style={fieldStyle}
+              minLength={6}
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
               required
             />
+          </label>
 
-            <button
-              className="btn btnPrimary"
-              disabled={loading}
-              type="submit"
-              style={{ marginTop: 6 }}
-            >
-              {loading ? "Working…" : mode === "signup" ? "Create account" : "Log in"}
-            </button>
+          <button className={styles.submit} disabled={loading} type="submit">
+            {loading ? "Please wait..." : mode === "signup" ? "Create account" : "Log in"}
+            {!loading && <span aria-hidden="true">→</span>}
+          </button>
 
-            {msg && (
-              <div className="p" style={{ fontSize: 13, opacity: 0.95 }}>
-                {msg}
-              </div>
-            )}
-          </form>
-        </section>
-      </div>
+          {mode === "signup" && role === "student" && (
+            <p className={styles.nextStep}>
+              Next, we’ll invite you to complete your profile. You can use your
+              resume, enter details manually, or come back later.
+            </p>
+          )}
+
+          {message && (
+            <p className={styles.message} role="status">
+              {message}
+            </p>
+          )}
+        </form>
+
+        <p className={styles.switchPrompt}>
+          {mode === "signup" ? "Already have an account?" : "New to CareerKey?"}{" "}
+          <button type="button" onClick={() => changeMode(mode === "signup" ? "login" : "signup")}>
+            {mode === "signup" ? "Log in" : "Create an account"}
+          </button>
+        </p>
+      </section>
+
+      <p className={styles.footerNote}>A simple path to better career conversations.</p>
     </main>
   );
 }
-
-/** Layout styles */
-const pageStyle: React.CSSProperties = {
-  minHeight: "100vh",
-  display: "grid",
-  placeItems: "center",
-  padding: "32px 18px",
-};
-
-const shellStyle: React.CSSProperties = {
-  width: "min(1100px, 100%)",
-  display: "grid",
-  gap: 18,
-  gridTemplateColumns: "1fr",
-};
-
-const aboutCardStyle: React.CSSProperties = {
-  border: "1px solid rgba(233,236,241,0.14)",
-  borderRadius: 20,
-  padding: 22,
-  background: "rgba(0,0,0,0.10)",
-  backdropFilter: "blur(10px)",
-};
-
-const authCardStyle: React.CSSProperties = {
-  borderRadius: 20,
-  padding: 22,
-};
-
-/** UI styles */
-const fieldStyle: React.CSSProperties = {
-  padding: 10,
-  borderRadius: 12,
-  border: "1px solid rgba(233,236,241,0.18)",
-  background: "transparent",
-  color: "inherit",
-};
-
-const featureStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "12px 1fr",
-  gap: 10,
-  alignItems: "start",
-  padding: "10px 12px",
-  borderRadius: 14,
-  border: "1px solid rgba(233,236,241,0.12)",
-  background: "rgba(0,0,0,0.10)",
-};
-
-const dotStyle: React.CSSProperties = {
-  width: 10,
-  height: 10,
-  borderRadius: 999,
-  marginTop: 5,
-  background: "rgba(120,170,255,0.9)",
-  boxShadow: "0 0 0 4px rgba(120,170,255,0.12)",
-};
-
-const featureTitleStyle: React.CSSProperties = {
-  fontWeight: 700,
-  marginBottom: 2,
-};
-
-const featureTextStyle: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.95,
-};

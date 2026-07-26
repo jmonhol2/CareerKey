@@ -1,5 +1,6 @@
 export type Slot = {
   id: string;
+  event_id: string | null;
   start_time: string;
   end_time: string;
   capacity: number;
@@ -7,7 +8,7 @@ export type Slot = {
 
 type SlotTableProps = {
   slots: Slot[];
-  onDeleteSlot: (slotId: string) => void;
+  onDeleteSlot?: (slotId: string) => void;
 };
 
 export default function SlotTable({ slots, onDeleteSlot }: SlotTableProps) {
@@ -16,31 +17,31 @@ export default function SlotTable({ slots, onDeleteSlot }: SlotTableProps) {
   }
 
   return (
-    <table style={{ borderCollapse: "collapse", width: "100%" }}>
+    <div className="tableWrap"><table>
       <thead>
         <tr>
-          <th style={{ border: "1px solid #ddd", padding: "8px" }}>Start</th>
-          <th style={{ border: "1px solid #ddd", padding: "8px" }}>End</th>
-          <th style={{ border: "1px solid #ddd", padding: "8px" }}>Capacity</th>
-          <th style={{ border: "1px solid #ddd", padding: "8px" }}>Action</th>
+          <th>Start</th><th>End</th><th>Personnel capacity</th>
+          {onDeleteSlot && <th>Action</th>}
         </tr>
       </thead>
       <tbody>
         {slots.map((slot) => (
           <tr key={slot.id}>
-            <td style={{ border: "1px solid #ddd", padding: "8px" }}>
+            <td>
               {new Date(slot.start_time).toLocaleString()}
             </td>
-            <td style={{ border: "1px solid #ddd", padding: "8px" }}>
+            <td>
               {new Date(slot.end_time).toLocaleString()}
             </td>
-            <td style={{ border: "1px solid #ddd", padding: "8px" }}>{slot.capacity}</td>
-            <td style={{ border: "1px solid #ddd", padding: "8px" }}>
-              <button onClick={() => onDeleteSlot(slot.id)}>Delete</button>
-            </td>
+            <td>{slot.capacity}</td>
+            {onDeleteSlot && (
+              <td>
+                <button className="btn" onClick={() => onDeleteSlot(slot.id)}>Delete</button>
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }

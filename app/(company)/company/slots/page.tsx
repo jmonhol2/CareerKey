@@ -1,109 +1,121 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import SlotForm from "@/components/company/SlotForm";
+import { useCallback, useEffect, useState } from "react";
+import PersonnelManager from "@/components/company/PersonnelManager";
 import SlotTable, { type Slot } from "@/components/company/SlotTable";
+import { useCompanyContext } from "@/contexts/CompanyContext";
+import { formatEventDateTime, type RecruitingEvent } from "@/lib/events";
+import { supabase } from "@/lib/supabaseClient";
 
 export default function CompanySlotsPage() {
-  const [companyId, setCompanyId] = useState<string | null>(null);
+  const { company } = useCompanyContext();
   const [slots, setSlots] = useState<Slot[]>([]);
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
-  const [capacity, setCapacity] = useState(1);
+  const [activeEvent, setActiveEvent] = useState<RecruitingEvent | null>(null);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  async function loadSlots() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  const loadSlots = useCallback(async (eventId: string) => {
+    if (!company) {
+      setSlots([]);
+      return;
+    }
 
-    if (!user) return;
-
-    const { data: company } = await supabase
-      .from("companies")
-      .select("id")
-      .eq("owner_user_id", user.id)
-      .single();
-
-    if (!company) return;
-
-    setCompanyId(company.id);
-
-    const { data: slotData } = await supabase
+    const { data, error } = await supabase
       .from("time_slots")
       .select("*")
       .eq("company_id", company.id)
+      .eq("event_id", eventId)
       .order("start_time", { ascending: true });
 
-    setSlots(slotData ?? []);
-  }
+    if (error) {
+      setMessage(`Unable to load time slots: ${error.message}`);
+      return;
+    }
+
+    setSlots(data ?? []);
+  }, [company]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void loadSlots();
-    }, 0);
+    let active = true;
 
-    return () => clearTimeout(timer);
-  }, []);
+    async function loadEventAndSlots() {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("recruiting_events")
+        .select("id, name, start_time, end_time, slot_duration_minutes, timezone, is_active")
+        .eq("is_active", true)
+        .maybeSingle();
 
-  async function handleCreateSlot(e: React.FormEvent) {
-    e.preventDefault();
-    setMessage("");
+      if (!active) return;
 
-    if (!companyId) {
-      setMessage("No company profile found.");
-      return;
+      if (error) {
+        setMessage(`Unable to load the event schedule: ${error.message}`);
+        setActiveEvent(null);
+        setSlots([]);
+      } else if (data) {
+        const event = data as RecruitingEvent;
+        setActiveEvent(event);
+        await loadSlots(event.id);
+      } else {
+        setActiveEvent(null);
+        setSlots([]);
+      }
+
+      if (active) setLoading(false);
     }
 
-    const { error } = await supabase.from("time_slots").insert({
-      company_id: companyId,
-      start_time: startTime,
-      end_time: endTime,
-      capacity,
-    });
-
-    if (error) {
-      setMessage(`Error: ${error.message}`);
-      return;
-    }
-
-    setMessage("Slot created successfully.");
-    setStartTime("");
-    setEndTime("");
-    setCapacity(1);
-    loadSlots();
-  }
-
-  async function handleDeleteSlot(slotId: string) {
-    const { error } = await supabase.from("time_slots").delete().eq("id", slotId);
-
-    if (error) {
-      setMessage(`Error: ${error.message}`);
-      return;
-    }
-
-    setMessage("Slot deleted.");
-    loadSlots();
-  }
+    void loadEventAndSlots();
+    return () => {
+      active = false;
+    };
+  }, [loadSlots]);
 
   return (
     <div>
+      <div className="kicker">AVAILABILITY</div>
       <h1>Manage Time Slots</h1>
-      <SlotForm
-        startTime={startTime}
-        endTime={endTime}
-        capacity={capacity}
-        onStartTimeChange={setStartTime}
-        onEndTimeChange={setEndTime}
-        onCapacityChange={setCapacity}
-        onSubmit={handleCreateSlot}
-      />
+      <p className="p" style={{ marginBottom: 22 }}>
+        Add the personnel students can meet. Each person is automatically available for the
+        entire event except during breaks you add below.
+      </p>
+
+      {loading ? (
+        <p className="p">Loading the active event...</p>
+      ) : activeEvent && company ? (
+        <>
+          <div className="card" style={{ marginBottom: 18 }}>
+            <div className="kicker">{activeEvent.name}</div>
+            <h2 style={{ margin: "8px 0 6px", fontSize: 20 }}>Administrator event window</h2>
+            <p className="p">
+              {formatEventDateTime(activeEvent.start_time, activeEvent.timezone)} – {formatEventDateTime(activeEvent.end_time, activeEvent.timezone)}
+            </p>
+            <p className="p">
+              {activeEvent.slot_duration_minutes}-minute appointments · {activeEvent.timezone}
+            </p>
+          </div>
+
+          <PersonnelManager
+            companyId={company.id}
+            event={activeEvent}
+            onAvailabilityChange={() => loadSlots(activeEvent.id)}
+          />
+
+          <h2 style={{ marginTop: 30 }}>Automatically available slots</h2>
+          <p className="p" style={{ marginBottom: 14 }}>
+            Capacity reflects the number of personnel available during each time.
+          </p>
+          <SlotTable slots={slots} />
+        </>
+      ) : (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <strong>No active event schedule</strong>
+          <p className="p" style={{ marginTop: 6 }}>
+            Personnel availability will open after an administrator sets the event window.
+          </p>
+        </div>
+      )}
 
       {message && <p>{message}</p>}
-
-      <h2>Existing Slots</h2>
-      <SlotTable slots={slots} onDeleteSlot={handleDeleteSlot} />
     </div>
   );
 }

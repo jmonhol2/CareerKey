@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
+import RequirePermission from "@/components/RequirePermission";
+import { locationPreferenceMatches } from "@/lib/usStates";
 
 type StudentProfile = {
   user_id: string;
@@ -39,6 +42,17 @@ type PositionRow = {
     company_name: string;
   } | null;
 };
+
+type PositionQueryRow = Omit<PositionRow, "companies"> & {
+  companies: PositionRow["companies"] | NonNullable<PositionRow["companies"]>[];
+};
+
+function normalizePosition(row: PositionQueryRow): PositionRow {
+  return {
+    ...row,
+    companies: Array.isArray(row.companies) ? row.companies[0] ?? null : row.companies,
+  };
+}
 
 function normalizeList(values: string[] | null | undefined) {
   return (values ?? []).map((v) => v.trim().toLowerCase()).filter(Boolean);
@@ -94,14 +108,20 @@ function computePositionMatch(position: PositionRow, profile: StudentProfile | n
     .trim()
     .toLowerCase();
 
-  if (positionLocation) {
-    const exactLocation = preferredLocations.some((loc) => positionLocation.includes(loc));
+  if (profile.open_to_relocation) {
+    score += 20;
+    reasons.push("open to opportunities anywhere");
+  } else if (positionLocation) {
+    const exactLocation = preferredLocations.some((location) =>
+      locationPreferenceMatches(
+        location,
+        positionLocation,
+        position.location_state
+      )
+    );
     if (exactLocation) {
       score += 20;
       reasons.push("preferred location match");
-    } else if (profile.open_to_relocation) {
-      score += 10;
-      reasons.push("open to relocation");
     }
   }
 
@@ -139,7 +159,12 @@ function getProfileCompleteness(profile: StudentProfile | null) {
     { label: "class year", done: !!profile.class_year },
     { label: "GPA", done: profile.gpa != null },
     { label: "work authorization", done: !!profile.work_authorization },
-    { label: "preferred locations", done: !!profile.preferred_locations?.length },
+    {
+      label: "location preference",
+      done:
+        !!profile.open_to_relocation ||
+        !!profile.preferred_locations?.length,
+    },
     { label: "interested role types", done: !!profile.interested_role_types?.length },
     { label: "preferred work modes", done: !!profile.preferred_work_modes?.length },
     { label: "industries of interest", done: !!profile.industries_of_interest?.length },
@@ -155,6 +180,14 @@ function getProfileCompleteness(profile: StudentProfile | null) {
 }
 
 export default function MatchesPage() {
+  return (
+    <RequirePermission permission="student.portal">
+      <MatchesPageContent />
+    </RequirePermission>
+  );
+}
+
+function MatchesPageContent() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -226,7 +259,8 @@ export default function MatchesPage() {
         }
 
         setLogoMap(nextLogoMap);
-        setPositions((positionsData as PositionRow[]) ?? []);
+        const positionRows = (positionsData ?? []) as unknown as PositionQueryRow[];
+        setPositions(positionRows.map(normalizePosition));
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Failed to load matches");
       } finally {
@@ -304,7 +338,7 @@ export default function MatchesPage() {
               style={{
                 height: 10,
                 borderRadius: 999,
-                background: "rgba(255,255,255,0.08)",
+                background: "#e5efea",
                 overflow: "hidden",
                 marginBottom: 10,
               }}
@@ -313,7 +347,7 @@ export default function MatchesPage() {
                 style={{
                   width: `${profileCompleteness.percent}%`,
                   height: "100%",
-                  background: "rgba(87, 112, 255, 0.85)",
+                  background: "linear-gradient(90deg, var(--primary), #63ad9e)",
                 }}
               />
             </div>
@@ -416,9 +450,12 @@ export default function MatchesPage() {
                   >
                     <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                       {getCompanyLogo(p.company_id) ? (
-                        <img
+                        <Image
                           src={getCompanyLogo(p.company_id)!}
                           alt={`${p.companies?.company_name ?? "Company"} logo`}
+                          width={52}
+                          height={52}
+                          unoptimized
                           style={{
                             width: 52,
                             height: 52,
@@ -440,7 +477,7 @@ export default function MatchesPage() {
                             alignItems: "center",
                             justifyContent: "center",
                             fontWeight: 900,
-                            background: "rgba(255,255,255,0.03)",
+                            background: "var(--surface-soft)",
                             flexShrink: 0,
                           }}
                         >
@@ -461,7 +498,8 @@ export default function MatchesPage() {
                         padding: "8px 12px",
                         borderRadius: 999,
                         border: "1px solid var(--border)",
-                        background: "rgba(87, 112, 255, 0.12)",
+                        color: "var(--primary)",
+                        background: "var(--primary-soft)",
                         fontWeight: 900,
                         whiteSpace: "nowrap",
                       }}
@@ -512,6 +550,6 @@ const fieldStyle: React.CSSProperties = {
   padding: 10,
   borderRadius: 12,
   border: "1px solid var(--border)",
-  background: "transparent",
-  color: "inherit",
+  background: "#fbfdfc",
+  color: "var(--text)",
 };

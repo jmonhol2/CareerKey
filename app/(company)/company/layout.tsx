@@ -1,41 +1,129 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Suspense } from "react";
+import RequirePermission from "@/components/RequirePermission";
+import NavIcon from "@/components/NavIcon";
+import {
+  CompanyContextProvider,
+  useCompanyContext,
+} from "@/contexts/CompanyContext";
 
-export default function CompanyLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function CompanyLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "linear-gradient(90deg, #0b1020, #031525)" }}>
-      <aside
-        style={{
-          width: "260px",
-          padding: "24px",
-          borderRight: "1px solid rgba(255,255,255,0.12)",
-          background: "rgba(255,255,255,0.04)",
-          color: "white",
-        }}
-      >
-        <h2 style={{ marginBottom: "24px", color: "white" }}>Company Portal</h2>
+    <RequirePermission permission="company.portal">
+      <Suspense fallback={<p className="p">Loading company portal...</p>}>
+        <CompanyContextProvider>
+          <CompanyPortalFrame>{children}</CompanyPortalFrame>
+        </CompanyContextProvider>
+      </Suspense>
+    </RequirePermission>
+  );
+}
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <Link href="/company" style={{ color: "white", textDecoration: "none" }}>
-            Dashboard
+function CompanyPortalFrame({ children }: { children: React.ReactNode }) {
+  const context = useCompanyContext();
+  const pathname = usePathname();
+  const companyQuery = context.company ? `?companyId=${context.company.id}` : "";
+
+  function portalLinkClass(href: string) {
+    const active = href === "/company" ? pathname === href : pathname.startsWith(href);
+    return active ? "portalNavLink portalNavLinkActive" : "portalNavLink";
+  }
+
+  return (
+    <div className="portalLayout">
+      <aside className="portalSidebar">
+        <div className="portalBrand">
+          <span className="appBrandMark" aria-hidden="true">
+            <span className="appKeyRing" />
+            <span className="appKeyStem" />
+          </span>
+          <div>
+            <h2>CareerKey</h2>
+            <p>{context.role === "admin" ? "Administrator company view" : "Company workspace"}</p>
+          </div>
+        </div>
+
+        {context.role === "admin" && context.availableCompanies.length > 0 && (
+          <label className="portalCompanyPicker">
+            Active company
+            <select
+              value={context.company?.id ?? ""}
+              onChange={(event) => context.selectCompany(event.target.value)}
+            >
+              {context.availableCompanies.map((company) => (
+                <option value={company.id} key={company.id}>
+                  {company.company_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <nav className="portalNav" aria-label="Company navigation">
+          <Link
+            aria-label="Dashboard"
+            className={portalLinkClass("/company")}
+            data-tooltip="Dashboard"
+            href={`/company${companyQuery}`}
+          >
+            <NavIcon name="home" />
           </Link>
-          <Link href="/company/profile" style={{ color: "white", textDecoration: "none" }}>
-            Profile
+          <Link
+            aria-label="Company profile"
+            className={portalLinkClass("/company/profile")}
+            data-tooltip="Company profile"
+            href={`/company/profile${companyQuery}`}
+          >
+            <NavIcon name="profile" />
           </Link>
-          <Link href="/company/slots" style={{ color: "white", textDecoration: "none" }}>
-            Time Slots
+          <Link
+            aria-label="Positions"
+            className={portalLinkClass("/company/positions")}
+            data-tooltip="Positions"
+            href={`/company/positions${companyQuery}`}
+          >
+            <NavIcon name="positions" />
           </Link>
-          <Link href="/company/appointments" style={{ color: "white", textDecoration: "none" }}>
-            Appointments
+          <Link
+            aria-label="Time slots"
+            className={portalLinkClass("/company/slots")}
+            data-tooltip="Time slots"
+            href={`/company/slots${companyQuery}`}
+          >
+            <NavIcon name="schedule" />
           </Link>
+          <Link
+            aria-label="Appointments"
+            className={portalLinkClass("/company/appointments")}
+            data-tooltip="Appointments"
+            href={`/company/appointments${companyQuery}`}
+          >
+            <NavIcon name="appointments" />
+          </Link>
+          {context.role === "admin" && (
+            <Link
+              aria-label="Back to administration"
+              className="portalNavLink"
+              data-tooltip="Back to administration"
+              href="/admin"
+            >
+              <NavIcon name="back" />
+            </Link>
+          )}
         </nav>
       </aside>
 
-      <main style={{ flex: 1, padding: "32px", color: "white" }}>
-        {children}
+      <main className="portalContent">
+        {context.loading ? (
+          <p>Loading company access...</p>
+        ) : context.error ? (
+          <p>Unable to load company access: {context.error}</p>
+        ) : (
+          children
+        )}
       </main>
     </div>
   );

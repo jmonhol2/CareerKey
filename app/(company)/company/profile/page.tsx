@@ -3,102 +3,93 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import CompanyProfileForm from "@/components/company/CompanyProfileForm";
+import { useCompanyContext } from "@/contexts/CompanyContext";
 
 export default function CompanyProfilePage() {
+  const context = useCompanyContext();
   const [companyName, setCompanyName] = useState("");
   const [description, setDescription] = useState("");
   const [website, setWebsite] = useState("");
-  const [majors, setMajors] = useState("");
+  const [majors, setMajors] = useState<string[]>([]);
   const [minGpa, setMinGpa] = useState("");
-  const [skills, setSkills] = useState("");
+  const [skills, setSkills] = useState<string[]>([]);
   const [jobTypes, setJobTypes] = useState("");
-  const [locations, setLocations] = useState("");
+  const [locations, setLocations] = useState<string[]>([]);
   const [sponsorshipAvailable, setSponsorshipAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function loadCompanyProfile() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
+      if (!context.company) {
         setLoading(false);
         return;
       }
 
-      const { data: company } = await supabase
+      const { data: companyData } = await supabase
         .from("companies")
         .select("*")
-        .eq("owner_user_id", user.id)
+        .eq("id", context.company.id)
         .single();
 
-      if (company) {
-        setCompanyName(company.company_name ?? "");
-        setDescription(company.description ?? "");
-        setWebsite(company.website ?? "");
-        setMajors((company.majors ?? []).join(", "));
-        setMinGpa(company.min_gpa?.toString() ?? "");
-        setSkills((company.skills ?? []).join(", "));
-        setJobTypes((company.job_types ?? []).join(", "));
-        setLocations((company.locations ?? []).join(", "));
-        setSponsorshipAvailable(company.sponsorship_available ?? false);
+      if (companyData) {
+        setCompanyName(companyData.company_name ?? "");
+        setDescription(companyData.description ?? "");
+        setWebsite(companyData.website ?? "");
+        setMajors(companyData.majors ?? []);
+        setMinGpa(companyData.min_gpa?.toString() ?? "");
+        setSkills(companyData.skills ?? []);
+        setJobTypes((companyData.job_types ?? []).join(", "));
+        setLocations(companyData.locations ?? []);
+        setSponsorshipAvailable(companyData.sponsorship_available ?? false);
       }
 
       setLoading(false);
     }
 
-    loadCompanyProfile();
-  }, []);
+    void loadCompanyProfile();
+  }, [context.company]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
+    if (!context.userId) {
       setMessage("You must be logged in.");
       return;
     }
 
     const payload = {
-      owner_user_id: user.id,
       company_name: companyName,
       description,
       website,
-      majors: majors
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      majors,
       min_gpa: minGpa ? Number(minGpa) : null,
-      skills: skills
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      skills,
       job_types: jobTypes
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
-      locations: locations
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      locations,
       sponsorship_available: sponsorshipAvailable,
     };
 
-    const { error } = await supabase
-      .from("companies")
-      .upsert(payload, { onConflict: "owner_user_id" });
+    const result =
+      context.role === "admin"
+        ? context.company
+          ? await supabase.from("companies").update(payload).eq("id", context.company.id)
+          : { error: new Error("Select a company before editing its profile.") }
+        : await supabase.from("companies").upsert(
+            { ...payload, owner_user_id: context.userId },
+            { onConflict: "owner_user_id" }
+          );
 
-    if (error) {
-      setMessage(`Error: ${error.message}`);
+    if (result.error) {
+      setMessage(`Error: ${result.error.message}`);
       return;
     }
 
+    await context.refreshCompany();
     setMessage("Company profile saved successfully.");
   }
 
@@ -106,7 +97,9 @@ export default function CompanyProfilePage() {
 
   return (
     <div>
+      <div className="kicker">COMPANY SETTINGS</div>
       <h1>Company Profile</h1>
+      <p className="p" style={{ marginBottom: 22 }}>Keep the details students use to evaluate your opportunities current.</p>
       <CompanyProfileForm
         companyName={companyName}
         description={description}

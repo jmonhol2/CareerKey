@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import AppNav from "@/components/AppNav";
+import LocationPicker from "@/components/LocationPicker";
+import MajorPicker from "@/components/MajorPicker";
+import SkillPicker from "@/components/SkillPicker";
 
 type Company = {
   id: string;
@@ -13,13 +16,13 @@ export default function AdminPositionsPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companyId, setCompanyId] = useState("");
   const [title, setTitle] = useState("");
-  const [locationLabel, setLocationLabel] = useState("");
+  const [locationLabel, setLocationLabel] = useState<string[]>([]);
   const [locationCity, setLocationCity] = useState("");
   const [locationState, setLocationState] = useState("");
   const [workMode, setWorkMode] = useState("On-site");
   const [openings, setOpenings] = useState(1);
-  const [majors, setMajors] = useState("");
-  const [skills, setSkills] = useState("");
+  const [majors, setMajors] = useState<string[]>([]);
+  const [skills, setSkills] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,27 +46,17 @@ export default function AdminPositionsPage() {
     setSaving(true);
     setMessage(null);
 
-    const majorsArray = majors
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const skillsArray = skills
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
     const { error } = await supabase.from("company_positions").insert({
       company_id: companyId,
       title,
-      location_label: locationLabel || null,
+      location_label: locationLabel[0] || null,
       location_city: locationCity || null,
       location_state: locationState || null,
       location_country: "USA",
       work_mode: workMode,
       openings,
-      majors: majorsArray.length ? majorsArray : null,
-      skills: skillsArray.length ? skillsArray : null,
+      majors: majors.length ? majors : null,
+      skills: skills.length ? skills : null,
       description: description || null,
     });
 
@@ -72,13 +65,13 @@ export default function AdminPositionsPage() {
     } else {
       setMessage("Position added successfully.");
       setTitle("");
-      setLocationLabel("");
+      setLocationLabel([]);
       setLocationCity("");
       setLocationState("");
       setWorkMode("On-site");
       setOpenings(1);
-      setMajors("");
-      setSkills("");
+      setMajors([]);
+      setSkills([]);
       setDescription("");
     }
 
@@ -121,15 +114,12 @@ export default function AdminPositionsPage() {
               <input value={title} onChange={(e) => setTitle(e.target.value)} style={fieldStyle} />
             </label>
 
-            <label>
-              <div className="p" style={{ fontSize: 14 }}>Location label</div>
-              <input
-                value={locationLabel}
-                onChange={(e) => setLocationLabel(e.target.value)}
-                placeholder="Nashville, TN"
-                style={fieldStyle}
-              />
-            </label>
+            <LocationPicker
+              value={locationLabel}
+              onChange={setLocationLabel}
+              label="Location label"
+              maxItems={1}
+            />
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <label>
@@ -165,25 +155,9 @@ export default function AdminPositionsPage() {
               </label>
             </div>
 
-            <label>
-              <div className="p" style={{ fontSize: 14 }}>Majors</div>
-              <input
-                value={majors}
-                onChange={(e) => setMajors(e.target.value)}
-                placeholder="Industrial Engineering, Mechanical Engineering"
-                style={fieldStyle}
-              />
-            </label>
+            <MajorPicker value={majors} onChange={setMajors} label="Preferred majors" />
 
-            <label>
-              <div className="p" style={{ fontSize: 14 }}>Skills</div>
-              <input
-                value={skills}
-                onChange={(e) => setSkills(e.target.value)}
-                placeholder="Lean, Excel, Quality"
-                style={fieldStyle}
-              />
-            </label>
+            <SkillPicker value={skills} onChange={setSkills} />
 
             <label>
               <div className="p" style={{ fontSize: 14 }}>Description</div>

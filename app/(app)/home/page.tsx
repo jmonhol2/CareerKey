@@ -5,13 +5,21 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "../../lib/supabaseClient";
 import AppNav from "@/components/AppNav";
-
-type Role = "student" | "company" | "admin";
+import RequirePermission from "@/components/RequirePermission";
+import { isAppRole, type AppRole } from "@/lib/permissions";
 
 export default function HomePage() {
+  return (
+    <RequirePermission permission="dashboard.view">
+      <HomePageContent />
+    </RequirePermission>
+  );
+}
+
+function HomePageContent() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<Role | null>(null);
+  const [role, setRole] = useState<AppRole | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -35,18 +43,20 @@ export default function HomePage() {
 
       if (profErr) setMsg(`Profile read failed: ${profErr.message}`);
 
-      if (prof?.role) {
-        setRole(prof.role as Role);
+      if (isAppRole(prof?.role)) {
+        setRole(prof.role);
         setName(prof.display_name ?? null);
         setLoading(false);
         return;
       }
 
       const meta = (user.user_metadata || {}) as {
-        role?: Role;
+        role?: string;
         display_name?: string | null;
       };
-      const metaRole = meta.role || "student";
+      // Account owners can edit user metadata, so it must never grant admin access.
+      const metaRole: Extract<AppRole, "student" | "company"> =
+        meta.role === "company" ? "company" : "student";
       const metaName = meta.display_name ?? null;
 
       const { error: insErr } = await supabase.from("profiles").insert({
@@ -77,7 +87,7 @@ export default function HomePage() {
         return;
       }
 
-      setRole(prof2.role as Role);
+      setRole(isAppRole(prof2.role) ? prof2.role : null);
       setName(prof2.display_name ?? null);
       setLoading(false);
     })();
@@ -170,13 +180,25 @@ export default function HomePage() {
             </section>
           </Link>
 
-          {(role === "admin" || role === "company") && (
-            <Link href="/admin/positions" style={linkReset}>
+          {role === "company" && (
+            <Link href="/company/positions" style={linkReset}>
               <section style={panelStyle}>
-                <div className="kicker">ADMIN</div>
+                <div className="kicker">COMPANY</div>
                 <h2 style={panelTitle}>Manage Positions</h2>
                 <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
                   Add and maintain company positions, locations, and openings.
+                </p>
+              </section>
+            </Link>
+          )}
+
+          {role === "admin" && (
+            <Link href="/admin" style={linkReset}>
+              <section style={panelStyle}>
+                <div className="kicker">ADMIN</div>
+                <h2 style={panelTitle}>Open Admin Console</h2>
+                <p className="p" style={{ fontSize: 13, marginTop: 6 }}>
+                  Review companies and enter an authorized company workspace.
                 </p>
               </section>
             </Link>
@@ -224,12 +246,13 @@ const pageStyle: React.CSSProperties = {
   minHeight: "calc(100vh - 60px)",
   display: "grid",
   placeItems: "center",
-  padding: "22px 18px",
+  padding: "30px 18px 52px",
 };
 
 const cardStyle: React.CSSProperties = {
-  width: "min(1100px, 100%)",
+  width: "min(1120px, 100%)",
   padding: 22,
+  overflow: "hidden",
 };
 
 const headerRow: React.CSSProperties = {
@@ -241,10 +264,11 @@ const headerRow: React.CSSProperties = {
 };
 
 const rolePill: React.CSSProperties = {
-  border: "1px solid rgba(233,236,241,0.14)",
-  borderRadius: 16,
-  padding: "10px 12px",
-  background: "rgba(255,255,255,0.03)",
+  border: "1px solid var(--border)",
+  borderRadius: 999,
+  padding: "10px 14px",
+  color: "var(--primary)",
+  background: "var(--primary-soft)",
   minWidth: 140,
 };
 
@@ -252,8 +276,8 @@ const noticeStyle: React.CSSProperties = {
   marginTop: 14,
   padding: 12,
   borderRadius: 14,
-  border: "1px solid rgba(233,236,241,0.14)",
-  background: "rgba(255,255,255,0.03)",
+  border: "1px solid var(--border)",
+  background: "var(--surface-warm)",
 };
 
 const gridStyle: React.CSSProperties = {
@@ -264,10 +288,11 @@ const gridStyle: React.CSSProperties = {
 };
 
 const panelStyle: React.CSSProperties = {
-  border: "1px solid rgba(233,236,241,0.12)",
-  borderRadius: 18,
-  padding: 16,
-  background: "rgba(0,0,0,0.10)",
+  border: "1px solid var(--border)",
+  borderRadius: 20,
+  padding: 20,
+  background: "var(--surface)",
+  boxShadow: "var(--shadow-soft)",
   minHeight: 160,
 };
 
@@ -288,7 +313,7 @@ const listStyle: React.CSSProperties = {
 const footerStyle: React.CSSProperties = {
   marginTop: 16,
   paddingTop: 12,
-  borderTop: "1px solid rgba(233,236,241,0.12)",
+  borderTop: "1px solid var(--border)",
 };
 
 const linkReset: React.CSSProperties = {

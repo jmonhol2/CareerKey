@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireApiUser } from "@/lib/requireApiUser";
+import { hasPermission, isAppRole } from "@/lib/permissions";
 
 function extractDomain(url: string | null): string | null {
   if (!url) return null;
@@ -43,6 +45,10 @@ async function googleTextSearch(query: string) {
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireApiUser(req);
+    if (auth.error) return auth.error;
+    const supabaseAdmin = getSupabaseAdmin();
+
     const body = await req.json();
     const companyId = body.companyId as string | undefined;
 
@@ -50,14 +56,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing companyId" }, { status: 400 });
     }
 
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from("profiles")
+      .select("role")
+      .eq("user_id", auth.user.id)
+      .single();
+
+    const role = isAppRole(profile?.role) ? profile.role : null;
+
+    if (profileError || !hasPermission(role, "company.portal")) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    }
+
     const { data: company, error: companyError } = await supabaseAdmin
       .from("companies")
-      .select("id, company_name, website, domain, places_query")
+      .select("id, owner_user_id, company_name, website, domain, places_query")
       .eq("id", companyId)
       .single();
 
     if (companyError || !company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    if (
+      !hasPermission(role, "companies.manage.all") &&
+      company.owner_user_id !== auth.user.id
+    ) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
     const websiteDomain = extractDomain(company.website ?? null);
@@ -110,14 +135,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: upsertError.message }, { status: 500 });
     }
 
-    return NextResponse.json({
-      profile: upserted,
-      debug: {
-        searchQuery,
-        googleResults: searchResults,
-        chosenPlace: place,
-      },
-    });
+    return NextResponse.json({ profile: upserted });
   } catch (error: unknown) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unexpected server error" },
